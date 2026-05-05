@@ -87,6 +87,7 @@ void FlexitModbusServer::setup() {
         uint16_t value = (data[4] << 8) | data[5];
 
         if (mb_.getCoil(address)) {
+            ESP_LOGW(TAG, "0x65: protecting pending cmd at 0x%04X from reset", address);
             return;
         }
 
@@ -184,7 +185,8 @@ void FlexitModbusServer::send_cmd(HoldingRegisterIndex cmd_register, uint16_t va
   // Write the command value to the register and set the corresponding coil.
   mb_.setHoldingRegister(cmd_register, value);
   mb_.setCoil(cmd_register, 1);
-
+  ESP_LOGW(TAG, "send_cmd: address=0x%04X value=%u coil_now=%d",
+           cmd_register, value, mb_.getCoil(cmd_register));
 
   uint8_t slot = MAX_PENDING_CMDS;  // sentinel: no slot found yet
   for (uint8_t i = 0; i < MAX_PENDING_CMDS; i++) {
