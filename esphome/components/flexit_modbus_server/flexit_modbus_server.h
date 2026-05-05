@@ -314,7 +314,7 @@ private:
   bool tx_enable_direct_{true};
 
   /// @brief How long (ms) to hold a command coil set after send_cmd().
-  static constexpr uint32_t CMD_COIL_TIMEOUT_MS = 500;
+  static constexpr uint32_t CMD_COIL_TIMEOUT_MS = 1000;
 
   /// @brief Maximum number of simultaneously pending commands.
   static constexpr uint8_t MAX_PENDING_CMDS = 16;
