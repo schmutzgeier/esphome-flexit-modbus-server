@@ -4,6 +4,7 @@
 #include "esphome/core/gpio.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include "esp_log.h"
 #include "esphome.h"
@@ -293,6 +294,12 @@ public:
 private:
   /// @brief The new Modbus RTU server object.
   ModbusRTUServer mb_;
+
+  /// @brief Keeps loop() running at full speed so the UART buffer is drained
+  ///        before multiple Modbus frames can accumulate.  Without this,
+  ///        ESPHome 2026.5.0's 62 Hz loop cadence allows several back-to-back
+  ///        CS60 frames to pile up between calls, breaking interframe detection.
+  HighFrequencyLoopRequester high_freq_;
 
   #ifdef DEBUG
   /* 
