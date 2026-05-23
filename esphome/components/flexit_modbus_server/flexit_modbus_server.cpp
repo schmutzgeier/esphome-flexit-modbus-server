@@ -64,6 +64,13 @@ void FlexitModbusServer::dump_config() {
 }
 
 void FlexitModbusServer::setup() {
+  // Keep loop() running as fast as possible so that the UART buffer is
+  // drained on every iteration before multiple CS60 frames can pile up.
+  // ESPHome ≥2026.5.0 (PR #15792) dropped the default cadence to ~62 Hz,
+  // which is too slow for the CS60's back-to-back framing — the same root
+  // cause as the 2026.3.0 regression, just from the opposite direction.
+  high_freq_.start();
+
   // Initialize the new ModbusRTUServer instance using our Stream interface (this),
   // the baud rate from our UART parent, the server address, and the maximum number
   // of coils and holding registers.
