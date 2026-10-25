@@ -22,7 +22,7 @@ static constexpr int16_t BAND[5] = {0, 52, 92, 118, 138};  // first row of each 
 static constexpr int RB_RX = 100, RB_RY = 96;              // the rainbow's outer radii
 static constexpr int POLE_X = 276;                         // the flagpole on flag days, by the cabin
 static constexpr int MOON_R = 9, SUN_R = 10;               // as drawn on the artboard
-static constexpr int SEA_OV_X = 0, SEA_OV_Y = 156;         // where the wave height is written, in the bay
+static constexpr int SEA_OV_X = 0, SEA_OV_Y = 218;         // where the wave height is written, low in the bay
 static constexpr int SEA_OV_W = 64, SEA_OV_H = 22;
 static constexpr int SEA_ROWS = 32;  // rows of waves on the bay at most
 
@@ -1511,7 +1511,13 @@ inline void animals(Scene &s, const Now &n) {
     int x = deer < 80 ? art::TREES_X + a.in(0, 2) : art::TREES_X - minute / 5;
     sprite_rows(sprite(s, x, art::DOOR_Y + 1 - 10, 11, 11, 1, ochre), DEER);
   }
-  int walrus = a.in(0, 99), x = a.in(4, 40), y = a.in(198, 224), dir = a.in(0, 1) ? 1 : -1;
+  int walrus = a.in(0, 99), x = a.in(4, 40), y = a.in(0, 16), dir = a.in(0, 1) ? 1 : -1;
+  if (y < 6) {  // out at the back of the bay, behind the kayak, where the bay is narrower
+    y += 160;
+    x = 14 + x * 24 / 40;
+  } else {  // or between the kayak and the wave height
+    y += 190;
+  }
   if (walrus < 35 && n.fog <= 45 && n.bft <= 6) {  // a third of the hours, swimming a pixel every ten minutes
     x += dir * minute / 10;
     uint32_t body[3], tusks[2];

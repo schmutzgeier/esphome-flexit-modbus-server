@@ -1,11 +1,13 @@
-# The panel's night mode over the quiet hours: its backlight goes dark while idle (night_idle_brightness 0), and
+# The panel's night mode over the quiet hours: its backlight goes dark while idle (night_idle_brightness), and
 # its night theme and brightness apply while it's used. The panel only has whole hours, so night starts at the
 # quiet start's hour and ends at the hour the quiet end reaches, covering all of it: 23:20-06:00 is 23-6.
 # Sent when the panel connects and when Quiet Hours Enable, Start or End change.
 # night_brightness: the backlight while it's used at night, 0-100
+# night_idle_brightness: the backlight while idle at night, 0-100, 0 = dark
 # Needs panel.yaml and quiet_hours.yaml
 defaults:
   night_brightness: "50"
+  night_idle_brightness: "0"
 
 script:
   - id: panel_quiet_night
@@ -16,7 +18,7 @@ script:
           if (on) {
             flexit::panel::set("night_from", s.hour);
             flexit::panel::set("night_to", (e.hour + (e.minute > 0 ? 1 : 0)) % 24);
-            flexit::panel::set("night_idle_brightness", 0);
+            flexit::panel::set("night_idle_brightness", ${night_idle_brightness});
             flexit::panel::set("night_brightness", ${night_brightness});
           }
           flexit::panel::set("night", on ? 1 : 0);
