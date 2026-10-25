@@ -1,0 +1,21 @@
+# A switch for Home Assistant automations that want a higher mode for a while, like for bad air the ESP doesn't
+# measure. Turn it on and the arbiter runs the mode, turn it off and it goes back, the same way as the packages.
+# Setting Set Mode from an automation instead counts as a change by hand: it ends every boost, and nothing puts
+# the user's mode back.
+# The switch goes off by itself when the arbiter drops it after a change by hand.
+# Needs core.yaml and controls.yaml
+substitutions:
+  # The mode it asks for: 2 = normal, 3 = max
+  flexit_ha_boost_mode: "2"
+
+switch:
+  - platform: template
+    name: "HA Boost"
+    id: ha_boost
+    icon: "mdi:fan-plus"
+    restore_mode: ALWAYS_OFF  # after a reboot we no longer know which mode to go back to
+    lambda: return flexit::controls::requesting("home assistant");
+    turn_on_action:
+      - lambda: flexit::controls::request("home assistant", ${flexit_ha_boost_mode});
+    turn_off_action:
+      - lambda: flexit::controls::release("home assistant");

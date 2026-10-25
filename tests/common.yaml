@@ -17,12 +17,9 @@ wifi:
   ssid: "ci"
   password: "ci-password"
 
-# Listed after core.yaml's GitHub source
-external_components:
-  - source:
-      type: local
-      path: ../esphome/components
-    components: [flexit_modbus_server]
+# The components from this checkout, not GitHub
+substitutions:
+  flexit_component_source: ../esphome/components
 
 packages:
   core: !include ../packages/core.yaml
@@ -37,6 +34,8 @@ packages:
   computed: !include ../packages/computed.yaml
   advanced: !include ../packages/advanced.yaml
   health: !include ../packages/health.yaml
+  quiet_hours: !include ../packages/quiet_hours.yaml
+  ha_boost: !include ../packages/ha_boost.yaml
 
 # Stand-ins for the sensors
 sensor:

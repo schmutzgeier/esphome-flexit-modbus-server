@@ -125,9 +125,11 @@ pieces the packages share, you don't add those yourself.
 | [`diagnostics.yaml`](packages/diagnostics.yaml) | Fan type (EC/AC), heating type, controller SW version, week program active, home/away input, filter resets | Read only |
 | [`fan_speeds.yaml`](packages/fan_speeds.yaml) | Supply/extract fan % for MIN/NORMAL/MAX | EC fans only. Disabled by default |
 | [`fireplace.yaml`](packages/fireplace.yaml) | Fireplace mode (temporary MAX with custom fan speeds) | Needs `controls.yaml`. EC fans only |
-| [`humidity_boost.yaml`](packages/humidity_boost.yaml) | Humidity boost (temporary MAX when humidity spikes, e.g. a shower) | Needs `controls.yaml` and a humidity sensor of your own |
-| [`co2.yaml`](packages/co2.yaml) | CO2 control around a target: stepped (MAX), proportional or PI (fan speeds) | Needs `controls.yaml` and a CO2 sensor of your own. The fan speed modes are EC fans only |
-| [`summer_cooling.yaml`](packages/summer_cooling.yaml) | Summer cooling (MAX when it is warm inside and cooler outside) | Needs `controls.yaml` |
+| [`humidity_boost.yaml`](packages/humidity_boost.yaml) | Humidity boost (temporary MAX when humidity spikes, e.g. a shower) | Needs `controls.yaml` and a humidity sensor of your own. `flexit_humidity_boost_mode: "2"` boosts to NORMAL instead |
+| [`co2.yaml`](packages/co2.yaml) | CO2 control around a target: stepped (MAX), proportional or PI (fan speeds) | Needs `controls.yaml` and a CO2 sensor of your own. The fan speed modes are EC fans only. `flexit_co2_stepped_mode: "2"` makes stepped go to NORMAL |
+| [`summer_cooling.yaml`](packages/summer_cooling.yaml) | Summer cooling (MAX when it is warm inside and cooler outside) | Needs `controls.yaml`. `flexit_summer_cooling_mode: "2"` cools at NORMAL |
+| [`quiet_hours.yaml`](packages/quiet_hours.yaml) | A night window in which humidity boosts don't start (CO2 still does), start and end settable in Home Assistant | Needs `controls.yaml` and Home Assistant's time. `flexit_quiet_start` / `flexit_quiet_end` are the first values |
+| [`ha_boost.yaml`](packages/ha_boost.yaml) | A switch for Home Assistant automations that want a higher mode for a while, through the same arbiter as the packages | Needs `controls.yaml`. `flexit_ha_boost_mode` (NORMAL) |
 | [`computed.yaml`](packages/computed.yaml) | Heat recovery efficiency, heater power/energy, filter days remaining, combined alarm | Read only |
 | [`advanced.yaml`](packages/advanced.yaml) | Installer settings from the CI600 menus (see below) | All disabled by default |
 | [`health.yaml`](packages/health.yaml) | The ESP's free RAM, largest free block and loop time | Diagnostic |
@@ -135,6 +137,8 @@ pieces the packages share, you don't add those yourself.
 
 All settings are read back from the CS60, so changes made on a CI600 panel show up in Home Assistant as well
 (see [Limitations](#limitations)).
+
+A boost to NORMAL only does something while the unit runs in MIN: the packages only ever raise the mode.
 
 ### Customizing
 

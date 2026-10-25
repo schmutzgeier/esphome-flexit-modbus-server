@@ -15,6 +15,9 @@ inline uint32_t sent_ms;       // when
 inline bool confirmed = true;  // the CS60 runs it, or 30 s have passed
 inline int user_mode = -1;     // the user's mode when we last looked, -1 = not yet
 
+// quiet_hours.yaml: humidity boosts don't start while it's true, the ones running end as usual
+inline bool quiet;
+
 // Runs the highest mode asked for as a temporary one, and the user's mode again once nobody asks. The server
 // keeps the user's mode, and sends it again at boot if we went down with the mode up.
 inline void arbiter() {

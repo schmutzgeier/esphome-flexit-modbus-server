@@ -8,4 +8,4 @@ packages:
       label: Summer cooling|Sommerkjøling
       icon: sun_thermo
       page: comfort
-      help: Runs at MAX when it's warm inside and cooler outside.|Kjører på MAKS når det er varmt inne og kjøligere ute.
+      help: Runs the fans higher when it's warm inside and cooler outside.|Kjører viftene høyere når det er varmt inne og kjøligere ute.

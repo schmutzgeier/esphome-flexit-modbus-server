@@ -7,8 +7,8 @@ namespace flexit::summer_cooling {
 
 static constexpr const char *WHO = "summer cooling";  // its name with the mode arbiter
 
-// every 30 s
-inline void tick() {
+// every 30 s. mode: what it asks the arbiter for, 3 = max
+inline void tick(int mode = 3) {
   const uint32_t now = millis();
   auto &s = id(server);
   const float inside = s.read_holding_register_temperature(flexit_modbus_server::REG_TEMPERATURE_EXTRACT_AIR);
@@ -39,7 +39,7 @@ inline void tick() {
       stop = true;
     } else if (now - id(summer_cooling_start_ms) >= 15 * 60000UL) {
       // Runs at least 15 minutes. The stop levels are a bit past the start levels, so it doesn't flip in and
-      // out of max.
+      // out of its mode.
       if (inside <= above - 0.5f) {
         ESP_LOGI("cooling", "Cooled down to %.1f°C, stopping", inside);
         stop = true;
@@ -68,7 +68,7 @@ inline void tick() {
     ESP_LOGI("cooling", "%.1f°C inside and %.1f°C outside, cooling", inside, outside);
     id(summer_cooling_active) = true;
     id(summer_cooling_start_ms) = now;
-    controls::request(WHO, 3);  // max
+    controls::request(WHO, mode);
   }
 }
 

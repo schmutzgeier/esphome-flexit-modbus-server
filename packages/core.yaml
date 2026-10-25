@@ -13,10 +13,12 @@ substitutions:
   flexit_address: "3"            # 1-3. A stock CI600 is at 1, and the week program and boosts need something there
   flexit_ref: main               # branch/tag, use the same as for the packages
   flexit_refresh: 1d             # 0s when testing a branch else 1d
+  # Where the C++ components come from: github://you/your-fork@branch for a fork, or a path for a local checkout
+  flexit_component_source: github://MSkjel/esphome-flexit-modbus-server@${flexit_ref}
   modbus_library_ref: main       # branch/tag of ESP-ModbusRTUServer, the Modbus library
 
 external_components:
-  - source: github://MSkjel/esphome-flexit-modbus-server@${flexit_ref}
+  - source: ${flexit_component_source}
     refresh: ${flexit_refresh}
     components: [flexit_modbus_server]
 

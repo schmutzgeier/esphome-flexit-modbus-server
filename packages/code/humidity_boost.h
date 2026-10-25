@@ -9,8 +9,8 @@ static constexpr const char *WHO = "humidity boost";  // its name with the mode 
 
 inline uint32_t minutes(float m) { return (uint32_t) (m * 60000.0f); }
 
-// switch turned on, by hand or by tick()
-inline void start() {
+// switch turned on, by hand or by tick(). mode: what it asks the arbiter for, 3 = max
+inline void start(int mode = 3) {
   if (id(humidity_boost_active))
     return;
   // Leave it alone if it's stopped
@@ -23,7 +23,7 @@ inline void start() {
   id(humidity_boost_start_ms) = millis();
   id(humidity_boost_below_release_since_ms) = 0;
   ESP_LOGI("humidity", "Boost on");
-  controls::request(WHO, 3);  // max
+  controls::request(WHO, mode);
   id(::humidity_boost).publish_state(true);
 }
 
@@ -34,7 +34,7 @@ inline void stop() {
   id(humidity_boost_end_ms) = millis();
   id(humidity_boost_below_release_since_ms) = 0;
   ESP_LOGI("humidity", "Boost off");
-  controls::release(WHO);  // back to the old mode if nobody else wants max
+  controls::release(WHO);  // back to the old mode if nobody else wants a higher one
   id(::humidity_boost).publish_state(false);
 }
 
@@ -115,6 +115,8 @@ template<typename Sensor> void tick(Sensor *sensor) {
       return;
     if (id(server).read_holding_register(flexit_modbus_server::REG_MODE) == 0)
       return;  // stopped
+    if (controls::quiet)
+      return;  // quiet_hours.yaml
     if (delta >= id(humidity_trigger_delta).state) {
       ESP_LOGI("humidity", "Humidity %.1f%% is %.1f%% above the baseline (%.1f%%)", humidity, delta, baseline);
       id(::humidity_boost).turn_on();

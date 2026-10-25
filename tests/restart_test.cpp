@@ -172,12 +172,14 @@ struct Sensor {
 static Select co2_control{2};  // proportional
 static Number co2_target{800}, co2_band{400}, co2_max_fan_increase{30}, co2_pi_gain{5}, co2_pi_integral_time{30};
 static Sensor co2;
+static int co2_stepped_mode = 3;  // flexit_co2_stepped_mode
 static bool fireplace_mode_active;
 static int fireplace_supply_fan_speed = 90, fireplace_extract_fan_speed = 20, fireplace_duration_minutes = 60;
 
 #include "controls.h"
 #include "co2.h"
 #include "fireplace.h"
+#include "quiet_hours.h"
 
 // ---------------------------------------------------------------- the ESP
 static bool up;
@@ -263,7 +265,7 @@ static void second() {
   if (t % 2000 == 0)
     flexit::controls::arbiter();
   if (t % 30000 == 0)
-    flexit::co2::tick(&co2);
+    flexit::co2::tick(&co2, co2_stepped_mode);
   if (fireplace_off_at && now_ms >= fireplace_off_at)
     fireplace_off();
   if (flexit::fireplace::conflict())
@@ -330,6 +332,9 @@ static void start_over() {
   memcpy(flash.values, CS60.reg, sizeof flash.values);  // the CS60 sent them all when it started
   queued = flash;
   co2_level = 600;
+  co2_control.index = 2;
+  co2_stepped_mode = 3;
+  flexit::controls::quiet = false;
   boot();
   run(60);
 }
@@ -528,6 +533,39 @@ int main(int argc, char **argv) {
          run(60);
          expect("mode a minute later", CS60.reg[REG_CMD_MODE], CS60.reg[REG_CMD_MODE] == 1);
        }},
+      {"stepped CO2 asking for normal (flexit_co2_stepped_mode 2) from min",
+       [] {
+         set_by_hand(REG_CMD_MODE, 1, false);
+         co2_control.index = 1;
+         co2_stepped_mode = 2;
+         run(60);
+         co2_level = 1300;
+         run(5 * 60);
+         expect("mode while the CO2 is high", CS60.reg[REG_CMD_MODE], CS60.reg[REG_CMD_MODE] == 2);
+         co2_level = 600;
+         run(15 * 60);
+         expect("mode once the CO2 is down", CS60.reg[REG_CMD_MODE], CS60.reg[REG_CMD_MODE] == 1);
+       }},
+      {"CO2 boosts in quiet hours too",
+       [] {
+         set_by_hand(REG_CMD_MODE, 1, false);
+         run(60);
+         flexit::controls::quiet = true;
+         co2_level = 1300;
+         run(5 * 60);
+         expect("mode in quiet hours", CS60.reg[REG_CMD_MODE], CS60.reg[REG_CMD_MODE] == 2);
+       }},
+      {"HA boost from min, then off",
+       [] {
+         set_by_hand(REG_CMD_MODE, 1, false);
+         run(60);
+         flexit::controls::request("home assistant", 2);
+         run(60);
+         expect("mode with the HA boost", CS60.reg[REG_CMD_MODE], CS60.reg[REG_CMD_MODE] == 2);
+         flexit::controls::release("home assistant");
+         run(60);
+         expect("mode after the HA boost", CS60.reg[REG_CMD_MODE], CS60.reg[REG_CMD_MODE] == 1);
+       }},
       {"CO2 fan speeds at an address the CS60 doesn't take them from",
        [] {
          CS60.not_master = true;
@@ -538,6 +576,17 @@ int main(int argc, char **argv) {
          expect("flash writes in an hour", flash_writes - writes, flash_writes - writes <= 2);
        }},
   };
+  // quiet_hours.h's window
+  {
+    using flexit::quiet_hours::in_window;
+    int bad = 0;
+    bad += !in_window(23 * 60 + 30, 23 * 60 + 20, 6 * 60) + !in_window(0, 23 * 60 + 20, 6 * 60) +
+           in_window(6 * 60, 23 * 60 + 20, 6 * 60) + in_window(12 * 60, 23 * 60 + 20, 6 * 60);
+    bad += !in_window(13 * 60, 12 * 60, 14 * 60) + in_window(14 * 60, 12 * 60, 14 * 60) + in_window(5, 5, 5);
+    printf("%-74s %s\n", "quiet hours window", bad ? "FAILED" : "ok");
+    failed += bad != 0;
+  }
+
   quiet = argc > 2;
   for (auto &c : cases) {
     start_over();

@@ -58,6 +58,7 @@ menu and the `panel_set` action below.
 | `panel/ha_sensor.yaml`, `ha_binary_sensor.yaml`, `ha_text.yaml`, `ha_switch.yaml` | A Home Assistant entity on the panel |
 | `panel/sensor.yaml`, `binary_sensor.yaml`, `text.yaml`, `switch.yaml`, `number.yaml`, `button.yaml` | One of the ESP's own entities on the panel |
 | `panel/fireplace.yaml`, `humidity_boost.yaml`, `co2.yaml`, `summer_cooling.yaml` | That package on the panel's comfort page |
+| `panel/quiet_hours.yaml` | The panel's night mode over `quiet_hours.yaml`'s hours, its backlight dark while idle |
 | `panel/picture.yaml`, `online_picture.yaml`, `ha_picture.yaml`, `animation.yaml`, `met.yaml` | Screensaver pictures |
 | `panel/update.yaml` | Flashes the panel's firmware from Home Assistant |
 

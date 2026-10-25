@@ -5,6 +5,7 @@ packages:
   panel_humidity_boost: !include ../packages/panel/humidity_boost.yaml
   panel_co2: !include ../packages/panel/co2.yaml
   panel_summer_cooling: !include ../packages/panel/summer_cooling.yaml
+  panel_quiet_hours: !include ../packages/panel/quiet_hours.yaml
   panel_bathroom: !include
     file: ../packages/panel/sensor.yaml
     vars:

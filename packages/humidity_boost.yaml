@@ -1,10 +1,12 @@
-# Humidity boost. Runs max when the humidity jumps (shower, cooking), then goes back to what it was.
+# Humidity boost. Runs max (or flexit_humidity_boost_mode) when the humidity jumps (shower, cooking), then goes back to what it was.
 # This is done on the ESP, the CS60 doesn't have it.
 # Needs core.yaml, controls.yaml and your own humidity sensor, with its id in flexit_humidity_sensor
 substitutions:
   flexit_humidity_sensor: inside_humidity
   # How many minutes of history the baseline looks at
   flexit_humidity_baseline_window: "60"
+  # The mode it asks for: 2 = normal, 3 = max. Normal only does something while the unit runs in min.
+  flexit_humidity_boost_mode: "3"
 
 esphome:
   includes:
@@ -65,7 +67,7 @@ switch:
     lambda: return id(humidity_boost_active);
 
     turn_on_action:
-      - lambda: flexit::humidity_boost::start();
+      - lambda: flexit::humidity_boost::start(${flexit_humidity_boost_mode});
     turn_off_action:
       - lambda: flexit::humidity_boost::stop();
 

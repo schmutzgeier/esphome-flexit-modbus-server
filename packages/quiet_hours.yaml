@@ -1,0 +1,56 @@
+# Quiet hours. Humidity boosts don't start in this window, so the fans stay down at night. A boost that is
+# already running ends as usual. CO2 control, fireplace mode, summer cooling, the Humidity Boost switch and
+# changes by hand aren't affected: bad air at night still gets ventilated. Start and end can be changed in Home Assistant, these are only the first values.
+# Needs core.yaml and controls.yaml, and Home Assistant for the time
+substitutions:
+  flexit_quiet_start: "23:00"
+  flexit_quiet_end: "06:00"
+
+esphome:
+  includes:
+    - code/quiet_hours.h
+
+time:
+  - platform: homeassistant
+    id: flexit_quiet_time
+
+switch:
+  - platform: template
+    name: "Quiet Hours Enable"
+    id: quiet_hours_enable
+    icon: "mdi:sleep"
+    optimistic: True
+    restore_mode: RESTORE_DEFAULT_ON
+
+datetime:
+  - platform: template
+    type: time
+    name: "Quiet Hours Start"
+    id: quiet_hours_start
+    entity_category: config
+    optimistic: True
+    restore_value: True
+    initial_value: "${flexit_quiet_start}"
+
+  - platform: template
+    type: time
+    name: "Quiet Hours End"
+    id: quiet_hours_end
+    entity_category: config
+    optimistic: True
+    restore_value: True
+    initial_value: "${flexit_quiet_end}"
+
+binary_sensor:
+  - platform: template
+    name: "Quiet Hours Active"
+    id: quiet_hours_active
+    icon: "mdi:sleep"
+    lambda: return flexit::controls::quiet;
+
+interval:
+  - interval: 30s
+    then:
+      - lambda: |-
+          flexit::quiet_hours::tick(id(flexit_quiet_time), id(quiet_hours_start), id(quiet_hours_end),
+                                    id(quiet_hours_enable).state);

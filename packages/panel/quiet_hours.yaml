@@ -1,0 +1,43 @@
+# The panel's night mode over the quiet hours: its backlight goes dark while idle (night_idle_brightness 0), and
+# its night theme and brightness apply while it's used. The panel only has whole hours, so night starts at the
+# quiet start's hour and ends at the hour the quiet end reaches, covering all of it: 23:20-06:00 is 23-6.
+# Sent when the panel connects and when Quiet Hours Enable, Start or End change.
+# night_brightness: the backlight while it's used at night, 0-100
+# Needs panel.yaml and quiet_hours.yaml
+defaults:
+  night_brightness: "50"
+
+script:
+  - id: panel_quiet_night
+    then:
+      - lambda: |-
+          auto &s = *id(quiet_hours_start), &e = *id(quiet_hours_end);
+          bool on = id(quiet_hours_enable).state && s.has_state() && e.has_state();
+          if (on) {
+            flexit::panel::set("night_from", s.hour);
+            flexit::panel::set("night_to", (e.hour + (e.minute > 0 ? 1 : 0)) % 24);
+            flexit::panel::set("night_idle_brightness", 0);
+            flexit::panel::set("night_brightness", ${night_brightness});
+          }
+          flexit::panel::set("night", on ? 1 : 0);
+          id(panel_night).publish_state(on);
+
+binary_sensor:
+  - id: !extend panel_connected
+    on_press:
+      - script.execute: panel_quiet_night
+
+switch:
+  - id: !extend quiet_hours_enable
+    on_turn_on:
+      - script.execute: panel_quiet_night
+    on_turn_off:
+      - script.execute: panel_quiet_night
+
+datetime:
+  - id: !extend quiet_hours_start
+    on_value:
+      - script.execute: panel_quiet_night
+  - id: !extend quiet_hours_end
+    on_value:
+      - script.execute: panel_quiet_night

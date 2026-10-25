@@ -49,8 +49,8 @@ inline void setting(uint16_t reg, uint16_t value) {
   }
 }
 
-// every 30 s
-template<typename Sensor> void tick(Sensor *sensor) {
+// every 30 s. stepped_mode: what Stepped asks the arbiter for, 3 = max
+template<typename Sensor> void tick(Sensor *sensor, int stepped_mode = 3) {
   const uint32_t now = millis();
   auto &s = id(server);
 
@@ -65,9 +65,9 @@ template<typename Sensor> void tick(Sensor *sensor) {
   const float high = low + id(co2_band).state;
 
   // Above the high level we ask for a higher mode, until it is back under the target. Stepped asks for
-  // max. The fan modes ask for normal, which only does something when the unit is in min, where the
-  // normal fan speeds aren't used.
-  const int wanted_mode = control == 1 ? 3 : control >= 2 ? 2 : 0;
+  // stepped_mode, max unless set otherwise. The fan modes ask for normal, which only does something when the
+  // unit is in min, where the normal fan speeds aren't used.
+  const int wanted_mode = control == 1 ? stepped_mode : control >= 2 ? 2 : 0;
 
   if (boost_active) {
     const auto request = controls::requests.find(WHO);

@@ -1,5 +1,5 @@
 # CO2 control around one target level. You pick how in Home Assistant:
-# Stepped runs max when the CO2 is well over the target.
+# Stepped runs max (or flexit_co2_stepped_mode) when the CO2 is well over the target.
 # Proportional turns the normal fan speeds up the further over the target it is.
 # PI keeps turning them up until the CO2 is back at the target.
 # The last two are for EC fans only.
@@ -7,6 +7,8 @@
 # Needs core.yaml, controls.yaml and your own CO2 sensor, with its id in flexit_co2_sensor
 substitutions:
   flexit_co2_sensor: co2
+  # The mode Stepped asks for: 2 = normal, 3 = max
+  flexit_co2_stepped_mode: "3"
 
 esphome:
   includes:
@@ -132,4 +134,4 @@ binary_sensor:
 interval:
   - interval: 30s
     then:
-      - lambda: flexit::co2::tick(id(${flexit_co2_sensor}));
+      - lambda: flexit::co2::tick(id(${flexit_co2_sensor}), ${flexit_co2_stepped_mode});

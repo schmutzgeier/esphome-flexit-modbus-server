@@ -1,8 +1,11 @@
-# Summer cooling. Runs max when it's too warm inside and cooler outside.
+# Summer cooling. Runs max (or flexit_summer_cooling_mode) when it's too warm inside and cooler outside.
 # Too warm is also measured against the setpoint, and it never runs while the heater is on.
 # The CS60 still holds the supply air at its setpoint, so a lower setpoint cools more.
 # This is done on the ESP, the CS60 doesn't have it.
 # Needs core.yaml and controls.yaml
+substitutions:
+  # The mode it asks for: 2 = normal, 3 = max. Normal only does something while the unit runs in min.
+  flexit_summer_cooling_mode: "3"
 
 esphome:
   includes:
@@ -105,4 +108,4 @@ binary_sensor:
 interval:
   - interval: 30s
     then:
-      - lambda: flexit::summer_cooling::tick();
+      - lambda: flexit::summer_cooling::tick(${flexit_summer_cooling_mode});

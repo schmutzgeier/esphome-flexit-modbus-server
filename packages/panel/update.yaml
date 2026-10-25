@@ -25,6 +25,7 @@ defaults:
   url: "https://github.com/MSkjel/flexit-ci600-firmware/releases/latest/download/ci600.fxup"
 
 http_request:
+  id: panel_http  # the same as met.yaml's and online_picture.yaml's: met.h is always built and uses it
   # GitHub's release download redirects to a URL about 1.7 KB long, longer than the default 512-byte buffers
   buffer_size_tx: 4096
   buffer_size_rx: 2048
