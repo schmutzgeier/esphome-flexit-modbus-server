@@ -215,7 +215,7 @@ picks which one. The panel's own menu has the clock styles that go over it.
 <tr>
 <td align="center"><img src="https://github.com/MSkjel/flexit-ci600-firmware/raw/screens/all/met/15_fair_forecast.png" width="280" alt="Weather with the forecast"><br><sub><code>met.yaml</code> with the forecast on</sub></td>
 <td align="center"><img src="https://github.com/MSkjel/flexit-ci600-firmware/raw/screens/all/met/31_aurora.png" width="280" alt="Northern lights"><br><sub>Northern lights on a clear night</sub></td>
-<td align="center"><img src="https://github.com/MSkjel/flexit-ci600-firmware/raw/screens/all/met/24_coast.png" width="280" alt="Coast scene"><br><sub>The coast scene</sub></td>
+<td align="center"><img src="https://github.com/MSkjel/flexit-ci600-firmware/raw/screens/all/met/24_full_moon_aurora.png" width="280" alt="Full moon and the aurora"><br><sub>Full moon and the aurora</sub></td>
 </tr>
 </table>
 
@@ -229,7 +229,7 @@ picks which one. The panel's own menu has the clock styles that go over it.
       - path: packages/panel/animation.yaml        # a GIF, at x, y on the picture
         vars: {name: flame, file: animations/flame.gif, resize: 48x48, x: 256, y: 16}
       - path: packages/panel/met.yaml              # the weather where you are, named "weather"
-        vars: {latitude: "59.9139", longitude: "10.7522", scene: coast}
+        vars: {latitude: "59.9139", longitude: "10.7522"}
 ```
 
 A picture is fitted to the screen and converted on the ESP to 16 colours, or to a JPEG when it has more, and sent
@@ -243,11 +243,25 @@ letters, digits and `_`.
 | `online_picture.yaml` | `name`, `url`, `update_interval` (like `10min`, `1.5h` or `1d`, `never` = only when shown), `format` (PNG, JPEG, BMP or AUTO), `resize` (160x120 default, blown up to the screen; 320x240 needs PSRAM), plus `encoding` and `quality`. A failed download is retried after 30 s, then twice as long each time. Before each download the ESP asks the server about the file and skips one it doesn't have the RAM for, with the reason in `Panel Picture Status`. A JPEG has to fit in RAM whole, so the server has to send its size; PNG and BMP are read a bit at a time. For a Home Assistant camera use `ha_picture.yaml` |
 | `ha_picture.yaml` | `name`, `entity_id` (a `camera.` or `image.` entity, with `kind: image` for the latter), `ha_url` (`http://homeassistant.local:8123`), `width` (320, HA scales the camera picture down to it when the camera can), plus `update_interval`, `resize`, `format`, `encoding` and `quality` as above. HA only hands out camera pictures with a token that changes now and then; the ESP follows the entity's `access_token` attribute, so nothing to set up. If the camera won't scale, the full picture is often too big for an ESP without PSRAM and is skipped; a Frigate camera's own `latest.jpg?h=120` through `online_picture.yaml` is the way round that |
 | `animation.yaml` | `name`, `file` (a GIF), `resize` (64x64 default), `x`, `y` (top left on the 320x240 screen), `scale` (1, or 2 to draw each pixel 2x), `frame_ms` (40 to 2550, the GIF's own timing isn't used), `drift_x`, `drift_y` (pixels per second it drifts, wrapping round the screen seamlessly), `fade_ms` (300, how long copies fade in and out). The panel plays all its animations from 6 KB, up to 4 at a time in up to 8 places, so keep them small: about 64x64 with a few frames, or more frames if little changes between them. Too big at scale 1 and it's made at half size and drawn 2x. `Panel Animation Status` says what's shown and what didn't fit |
-| `met.yaml` | `latitude`, `longitude`, `scene` (hills, coast, mountains, city), `aurora` (auto, off, always), `update_interval` (5 min, the forecast is only fetched again when MET says it expired), `redraw_interval`, `name` (weather). `Panel Weather Scene`, `Panel Weather Aurora` and `Panel Weather Forecast` change it from Home Assistant |
+| `met.yaml` | `latitude`, `longitude`, `aurora` (auto, off, always), `update_interval` (5 min, the forecast and the waves are only fetched again when MET says they expired, one request per check), `redraw_interval`, `name` (weather). `Panel Weather Aurora` and `Panel Weather Forecast` change it from Home Assistant |
 
 `met.yaml` draws the sky for the time of day and the next hour's weather from [MET Norway](https://api.met.no)
-(CC BY 4.0). The weather right now is also an item, so it can be a dashboard tile, and the cabin's chimney smokes
-when the heater is on. A failed request with `Code: 304` in the log is fine, the forecast just hasn't changed.
+(CC BY 4.0) over the cabin on the heath under the mountain. Someone climbs the mountain, someone paddles the bay
+and the dog waits on the hill by the cabin; when it rains the climber runs the ridge instead, with waves over 2 m or
+wind over 12 m/s the kayaker comes ashore and runs, with snow both are out on skis, and in rain over 4 mm in the hour
+all three are in the cabin, behind its big window. From half past eleven everyone's home, behind the lit window
+until the light goes out at midnight. Some hours, while it's light, a reindeer in the style of the
+rock carvings peeks out of the trees behind the cabin or walks out of them, and a walrus swims in the bay. The
+birch beside the cabin leafs out in May, turns yellow in September and is bare from late October, later and
+earlier the further north. The bay goes by the Beaufort scale, as in MET's wind and wave
+table: a mirror when it's calm, then ripples, white horses, foam crests and streaks, spray, and white water in a
+hurricane. Its waves are as high as MET's ocean forecast (Oceanforecast 2.0) says, or as the table has them for the
+wind where there's none: inland MET answers 422, and the ESP asks again the next day. With `Panel Weather Forecast`
+on, MET's wave height is written in the bay. Streaks in the air above the bay show the wind too, and the flag flies
+by the cabin on flag days, the rainbow flag on 28 June. The weather right now is also an item, so it can be a
+dashboard tile, and the cabin's chimney smokes when the heater is on. The landscape comes from the SVG layers in
+`scripts/met_art`, see its README to change it. A failed request with `Code: 304` in the log is fine, the forecast
+just hasn't changed.
 
 ## Messages, views and settings
 

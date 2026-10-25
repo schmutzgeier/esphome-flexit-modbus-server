@@ -1,5 +1,5 @@
-// met_scene.h as a panel picture. met.yaml calls fetch() for the forecast and redraw() every few minutes so the sun
-// and moon move. Only changed rows are sent to the panel.
+// met_scene.h as a panel picture. met.yaml calls fetch() for the forecast, fetch_sea() for the waves, and redraw()
+// every few minutes so the sun and moon move. Only changed rows are sent to the panel.
 #pragma once
 #include <algorithm>
 #include <cstdio>
@@ -16,6 +16,7 @@ extern "C" bool flexit_fireplace_active() __attribute__((weak));
 namespace flexit::panel::met {
 
 inline Weather weather;  // forecast for the coming hour
+inline Sea sea;          // the waves, from Oceanforecast. Not ok inland, where MET Norway has none
 
 // The dashboard tile's label and icon for each Icon
 static const char *const KIND_NAMES[] = {"Weather|Vær",    "Clear|Klart",    "Clear|Klart", "Fair|Lettskyet",
@@ -42,17 +43,15 @@ inline uint32_t backoff_s;    // doubles with each refusal in a row
 inline bool answered;         // MET Norway has answered since boot
 inline uint8_t early_tries;   // quick retries before that
 inline char url[128];
+// The same for the waves. Inland MET Norway has none, so after a 422 we ask again the next day.
+inline std::string sea_modified;
+inline uint32_t sea_not_before, sea_backoff_s;
+inline char sea_url[128];
 inline double lat, lon;
 inline std::string name;
 inline bool with_forecast;  // the Panel Weather Forecast switch
 inline Options options;     // set from met.yaml
 
-inline Ground ground_of(const char *name) {
-  return !strcmp(name, "coast")       ? G_COAST
-         : !strcmp(name, "mountains") ? G_MOUNTAINS
-         : !strcmp(name, "city")      ? G_CITY
-                                      : G_HILLS;
-}
 inline Aurora aurora_of(const char *name) {
   return !strcmp(name, "off") ? A_OFF : !strcmp(name, "always") ? A_ALWAYS : A_AUTO;
 }
@@ -110,6 +109,7 @@ inline bool draw() {
 #pragma GCC diagnostic ignored "-Waddress"
   options.fireplace = flexit_fireplace_active ? flexit_fireplace_active() : false;
 #pragma GCC diagnostic pop
+  weather.wave = wave_at(sea, (uint32_t) t.timestamp);
   build(canvas->scene, weather, lat, lon, (uint32_t) t.timestamp, with_forecast, ESPTime::timezone_offset(), options);
   canvas->row_y[0] = canvas->row_y[1] = -1;
   canvas->row_next = 0;
@@ -214,28 +214,16 @@ inline void fetched(int status, const Weather &w, const std::string &last_modifi
   redraw();
 }
 
-// The request, with If-Modified-Since once we have a Last-Modified. Read an hour at a time until there are
-// HOURS of them, into a buffer we may not get rather than a std::string that aborts the ESP without the RAM.
-inline void fetch() {
-  RAMAllocator<char> ram;
-  char *buf = ram.allocate(Reader::SIZE + 1);
-  if (!buf) {
-    ESP_LOGW("met", "No RAM for the forecast, %u bytes", (unsigned) Reader::SIZE);
-    not_before = (uint32_t) id(flexit_panel_time).now().timestamp + 600;
-    if (on_status)
-      on_status("No RAM for the forecast");
-    return;
-  }
+// A GET with If-Modified-Since once we have a Last-Modified, read into rd until it has what it wants. The HTTP
+// status, or -1 without an answer.
+template<typename R>
+int request(const char *to, const std::string &since, R &rd, std::string &last_modified, std::string &expires) {
   std::vector<http_request::Header> headers;
-  if (!modified.empty())
-    headers.push_back({"If-Modified-Since", modified});
-  auto c = id(panel_http).get(url, headers, {"last-modified", "expires"});
-  if (!c) {
-    ram.deallocate(buf, Reader::SIZE + 1);
-    unreachable();
-    return;
-  }
-  Reader rd(buf);
+  if (!since.empty())
+    headers.push_back({"If-Modified-Since", since});
+  auto c = id(panel_http).get(to, headers, {"last-modified", "expires"});
+  if (!c)
+    return -1;
   uint32_t last = millis();
   for (;;) {
     size_t room;
@@ -248,11 +236,86 @@ inline void fetch() {
     if (res != http_request::HttpReadLoopResult::DATA || !rd.got((size_t) r))
       break;
   }
-  ram.deallocate(buf, Reader::SIZE + 1);
   int status = c->status_code;
-  std::string last_modified = c->get_response_header("last-modified"), expires = c->get_response_header("expires");
+  last_modified = c->get_response_header("last-modified");
+  expires = c->get_response_header("expires");
   c->end();
-  fetched(status, rd.w, last_modified, expires);
+  return status;
+}
+
+// The forecast, read an hour at a time until there are HOURS of them, into a buffer we may not get rather than a
+// std::string that aborts the ESP without the RAM.
+inline void fetch() {
+  RAMAllocator<char> ram;
+  char *buf = ram.allocate(Reader::SIZE + 1);
+  if (!buf) {
+    ESP_LOGW("met", "No RAM for the forecast, %u bytes", (unsigned) Reader::SIZE);
+    not_before = (uint32_t) id(flexit_panel_time).now().timestamp + 600;
+    if (on_status)
+      on_status("No RAM for the forecast");
+    return;
+  }
+  Reader rd(buf);
+  std::string last_modified, expires;
+  int status = request(url, modified, rd, last_modified, expires);
+  ram.deallocate(buf, Reader::SIZE + 1);
+  if (status < 0)
+    unreachable();
+  else
+    fetched(status, rd.w, last_modified, expires);
+}
+
+// Whether to ask for the waves now: once MET Norway has answered for the forecast, and not before the last
+// answer's Expires
+inline bool sea_due() {
+  ESPTime t = id(flexit_panel_time).now();
+  return answered && network::is_connected() && t.is_valid() && (uint32_t) t.timestamp >= sea_not_before;
+}
+
+// Oceanforecast's answer, read into s, as fetched() for the forecast. -1 is no answer. Inland it's a 422, or a
+// document without waves; then there are none and we ask again tomorrow.
+inline void sea_fetched(int status, const Sea &s, const std::string &last_modified, const std::string &expires) {
+  uint32_t now = (uint32_t) id(flexit_panel_time).now().timestamp, e = http_date(expires);
+  bool ok = status >= 200 && status < 300 && s.ok;
+  if (ok || status == 304) {
+    sea_backoff_s = 0;
+    sea_not_before = e ? std::max(e, now + 600) : now + 3600;
+  } else if (status == 422 || status == 400 || status == 404 || (status >= 200 && status < 300)) {
+    sea_backoff_s = 0;
+    sea_not_before = now + 86400;
+    bool had = sea.ok;
+    sea = Sea{};
+    if (had)
+      redraw();
+    ESP_LOGI("met", "No waves here (HTTP %d), MET Norway has them for points at sea", status);
+    return;
+  } else {
+    sea_backoff_s = sea_backoff_s ? std::min<uint32_t>(2 * sea_backoff_s, 12 * 3600) : 3600;
+    sea_not_before = now + sea_backoff_s;
+    ESP_LOGW("met", "No waves from MET Norway (HTTP %d)", status);
+    return;
+  }
+  if (status == 304)
+    return;
+  sea = s;
+  if (!last_modified.empty())
+    sea_modified = last_modified;
+  ESP_LOGI("met", "Waves: %.1f m", wave_at(sea, now));
+  redraw();
+}
+
+inline void fetch_sea() {
+  RAMAllocator<char> ram;
+  char *buf = ram.allocate(SeaReader::SIZE + 1);
+  if (!buf) {
+    sea_not_before = (uint32_t) id(flexit_panel_time).now().timestamp + 600;
+    return;
+  }
+  SeaReader rd(buf);
+  std::string last_modified, expires;
+  int status = request(sea_url, sea_modified, rd, last_modified, expires);
+  ram.deallocate(buf, SeaReader::SIZE + 1);
+  sea_fetched(status, rd.sea, last_modified, expires);
 }
 
 inline void setup(double latitude, double longitude, const char *picture, const char *encoding, const char *quality) {
@@ -260,6 +323,8 @@ inline void setup(double latitude, double longitude, const char *picture, const 
   lon = longitude;
   // MET Norway wants at most 4 decimals, more can get a 403
   snprintf(url, sizeof url, "https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=%.4f&lon=%.4f", lat, lon);
+  snprintf(sea_url, sizeof sea_url, "https://api.met.no/weatherapi/oceanforecast/2.0/complete?lat=%.4f&lon=%.4f", lat,
+           lon);
   name = picture;
   now_item = Item("weather", ITEM_SENSOR)
                  .view(false)

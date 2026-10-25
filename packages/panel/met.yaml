@@ -7,8 +7,13 @@
 # failed request, but the forecast just hasn't changed. When refused or not answered we back off, from an hour
 # up to 12. The picture is redrawn every redraw_interval. name, encoding and quality work as in picture.yaml, but
 # encoding is palette here: the scene is flat colours, and trying JPEGs takes the ESP far longer.
-# "Panel Weather Scene" picks the landscape and starts at scene. "Panel Weather Aurora" starts at aurora, where auto
-# means some clear nights north of 55 degrees. "Panel Weather Forecast" draws the forecast over the picture.
+# The picture is the cabin on the heath under the mountain (scripts/met_art). The climber runs the ridge in the
+# rain, the kayaker comes ashore and runs with waves over 2 m or wind over 12 m/s, with snow both are out on skis,
+# and in rain over 4 mm they and the dog are behind the cabin's big window, as from 23:30 (lights out at midnight)
+# to 6. Some hours a reindeer and a walrus. The bay goes by the Beaufort scale, its waves as high as MET's Oceanforecast says, asked for at the check
+# after the forecast; inland it has none (a 422) and we ask again the next day. Streaks in the air above the bay
+# show the wind too. "Panel Weather Aurora" starts at aurora, where auto means some clear nights north of 55
+# degrees. "Panel Weather Forecast" draws the forecast over the picture, and the wave height in the bay.
 # The current weather is also a dashboard tile on the panel, under Display > Home screen > Dashboard tiles. It's
 # listed by the weather right now, like Fair or Cloudy. The cabin's chimney smokes when the heater is on.
 # Weather data: MET Norway, CC BY 4.0.
@@ -18,7 +23,6 @@ defaults:
   quality: auto
   update_interval: 5min
   redraw_interval: 5min
-  scene: hills
   aurora: auto
 
 http_request:
@@ -38,19 +42,6 @@ esp32:
 select:
   - id: !extend panel_picture
     options: ["${name}"]
-  - platform: template
-    id: panel_weather_scene
-    name: "Panel Weather Scene"
-    entity_category: config
-    icon: "mdi:image-filter-hdr"
-    options: ["hills", "coast", "mountains", "city"]
-    initial_option: "${scene}"
-    optimistic: true
-    restore_value: true
-    set_action:
-      - lambda: |-
-          flexit::panel::met::options.ground = flexit::panel::met::ground_of(x.c_str());
-          flexit::panel::met::redraw();
   - platform: template
     id: panel_weather_aurora
     name: "Panel Weather Aurora"
@@ -92,13 +83,14 @@ script:
       - lambda: |-
           if (flexit::panel::met::due())
             flexit::panel::met::fetch();
+          else if (flexit::panel::met::sea_due())  // one request at a time, the waves at the next check
+            flexit::panel::met::fetch_sea();
 
 esphome:
   on_boot:
     - then:
         - lambda: |-
             flexit::panel::met::setup(${latitude}, ${longitude}, "${name}", "${encoding}", "${quality}");
-            flexit::panel::met::options.ground = flexit::panel::met::ground_of(id(panel_weather_scene).current_option().c_str());
             flexit::panel::met::options.aurora = flexit::panel::met::aurora_of(id(panel_weather_aurora).current_option().c_str());
             flexit::panel::met::on_status = [](const std::string &s) { id(panel_weather).publish_state(s); };
         - wait_until:

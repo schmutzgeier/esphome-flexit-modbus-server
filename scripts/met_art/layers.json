@@ -1,0 +1,600 @@
+{
+ "artboard": {
+  "w": 1600,
+  "h": 1000
+ },
+ "layers": [
+  {
+   "name": "Sky",
+   "file": "00_sky.svg",
+   "kind": "terrain",
+   "x": 0,
+   "y": 0,
+   "w": 1600,
+   "h": 708
+  },
+  {
+   "name": "Stars",
+   "file": "01_stars.svg",
+   "kind": "terrain",
+   "x": 7,
+   "y": 1,
+   "w": 1593,
+   "h": 580
+  },
+  {
+   "name": "Moon",
+   "file": "02_moon.svg",
+   "kind": "standing",
+   "x": 19,
+   "y": 5,
+   "w": 306,
+   "h": 306
+  },
+  {
+   "name": "Aurora horizon glow",
+   "file": "03_aurora_horizon_glow.svg",
+   "kind": "terrain",
+   "x": 235,
+   "y": 431,
+   "w": 1365,
+   "h": 283
+  },
+  {
+   "name": "Aurora upper band",
+   "file": "04_aurora_upper_band.svg",
+   "kind": "terrain",
+   "x": 543,
+   "y": 85,
+   "w": 1057,
+   "h": 199
+  },
+  {
+   "name": "Aurora main band",
+   "file": "05_aurora_main_band.svg",
+   "kind": "terrain",
+   "x": 289,
+   "y": 0,
+   "w": 1311,
+   "h": 433
+  },
+  {
+   "name": "Mountain",
+   "file": "06_mountain.svg",
+   "kind": "terrain",
+   "x": 229,
+   "y": 536,
+   "w": 1371,
+   "h": 227
+  },
+  {
+   "name": "Mountain mist",
+   "file": "07_mountain_mist.svg",
+   "kind": "terrain",
+   "x": 0,
+   "y": 601,
+   "w": 1600,
+   "h": 100
+  },
+  {
+   "name": "Bay",
+   "file": "08_bay.svg",
+   "kind": "terrain",
+   "x": 0,
+   "y": 687,
+   "w": 334,
+   "h": 313
+  },
+  {
+   "name": "Rocky island",
+   "file": "09_rocky_island.svg",
+   "kind": "standing",
+   "x": 0,
+   "y": 668,
+   "w": 128,
+   "h": 99
+  },
+  {
+   "name": "Kayak",
+   "file": "10_kayak.svg",
+   "kind": "standing",
+   "x": 9,
+   "y": 778,
+   "w": 265,
+   "h": 127
+  },
+  {
+   "name": "Land",
+   "file": "11_land.svg",
+   "kind": "terrain",
+   "x": 249,
+   "y": 681,
+   "w": 1351,
+   "h": 319
+  },
+  {
+   "name": "Far heath 1",
+   "file": "12_far_heath_1.svg",
+   "kind": "terrain",
+   "x": 256,
+   "y": 695,
+   "w": 487,
+   "h": 26
+  },
+  {
+   "name": "Far heath 2",
+   "file": "13_far_heath_2.svg",
+   "kind": "terrain",
+   "x": 597,
+   "y": 698,
+   "w": 646,
+   "h": 25
+  },
+  {
+   "name": "Far haze",
+   "file": "14_far_haze.svg",
+   "kind": "terrain",
+   "x": 249,
+   "y": 681,
+   "w": 1351,
+   "h": 61
+  },
+  {
+   "name": "Sheep 1",
+   "file": "15_sheep_1.svg",
+   "kind": "standing",
+   "x": 422,
+   "y": 684,
+   "w": 22,
+   "h": 23
+  },
+  {
+   "name": "Sheep 2",
+   "file": "16_sheep_2.svg",
+   "kind": "standing",
+   "x": 495,
+   "y": 691,
+   "w": 21,
+   "h": 18
+  },
+  {
+   "name": "Grass (far)",
+   "file": "17_grass_far.svg",
+   "kind": "terrain",
+   "x": 365,
+   "y": 696,
+   "w": 621,
+   "h": 17
+  },
+  {
+   "name": "Granite dome",
+   "file": "18_granite_dome.svg",
+   "kind": "terrain",
+   "x": 283,
+   "y": 725,
+   "w": 384,
+   "h": 78
+  },
+  {
+   "name": "Heath rise",
+   "file": "19_heath_rise.svg",
+   "kind": "terrain",
+   "x": 597,
+   "y": 740,
+   "w": 486,
+   "h": 75
+  },
+  {
+   "name": "Cabin hill",
+   "file": "20_cabin_hill.svg",
+   "kind": "terrain",
+   "x": 697,
+   "y": 643,
+   "w": 903,
+   "h": 265
+  },
+  {
+   "name": "Footpath",
+   "file": "21_footpath.svg",
+   "kind": "terrain",
+   "x": 1034,
+   "y": 651,
+   "w": 428,
+   "h": 200
+  },
+  {
+   "name": "Sheep on hill",
+   "file": "22_sheep_on_hill.svg",
+   "kind": "standing",
+   "x": 1189,
+   "y": 689,
+   "w": 27,
+   "h": 26
+  },
+  {
+   "name": "Spruce",
+   "file": "22b_spruce.svg",
+   "kind": "terrain",
+   "x": 1440,
+   "y": 410,
+   "w": 120,
+   "h": 260
+  },
+  {
+   "name": "Birch",
+   "file": "22c_birch.svg",
+   "kind": "terrain",
+   "x": 1500,
+   "y": 470,
+   "w": 140,
+   "h": 200
+  },
+  {
+   "name": "Cabin",
+   "file": "23_cabin.svg",
+   "kind": "standing",
+   "x": 1334,
+   "y": 501,
+   "w": 243,
+   "h": 198
+  },
+  {
+   "name": "Chimney smoke",
+   "file": "24_chimney_smoke.svg",
+   "kind": "standing",
+   "x": 1530,
+   "y": 446,
+   "w": 36,
+   "h": 90
+  },
+  {
+   "name": "Buhund",
+   "file": "25_buhund.svg",
+   "kind": "standing",
+   "x": 1320,
+   "y": 605,
+   "w": 51,
+   "h": 59
+  },
+  {
+   "name": "Boulder 1",
+   "file": "26_boulder_1.svg",
+   "kind": "standing",
+   "x": 376,
+   "y": 727,
+   "w": 34,
+   "h": 21
+  },
+  {
+   "name": "Juniper 1",
+   "file": "27_juniper_1.svg",
+   "kind": "standing",
+   "x": 619,
+   "y": 762,
+   "w": 14,
+   "h": 17
+  },
+  {
+   "name": "Heather 1",
+   "file": "28_heather_1.svg",
+   "kind": "standing",
+   "x": 922,
+   "y": 760,
+   "w": 16,
+   "h": 9
+  },
+  {
+   "name": "Heather 2",
+   "file": "29_heather_2.svg",
+   "kind": "standing",
+   "x": 682,
+   "y": 764,
+   "w": 16,
+   "h": 10
+  },
+  {
+   "name": "Juniper 2",
+   "file": "30_juniper_2.svg",
+   "kind": "standing",
+   "x": 1006,
+   "y": 770,
+   "w": 12,
+   "h": 17
+  },
+  {
+   "name": "Grass (mid)",
+   "file": "31_grass_mid.svg",
+   "kind": "terrain",
+   "x": 506,
+   "y": 732,
+   "w": 484,
+   "h": 56
+  },
+  {
+   "name": "Sheep 3",
+   "file": "32_sheep_3.svg",
+   "kind": "standing",
+   "x": 707,
+   "y": 730,
+   "w": 34,
+   "h": 35
+  },
+  {
+   "name": "Sheep 4",
+   "file": "33_sheep_4.svg",
+   "kind": "standing",
+   "x": 797,
+   "y": 732,
+   "w": 31,
+   "h": 25
+  },
+  {
+   "name": "Sheep 5",
+   "file": "34_sheep_5.svg",
+   "kind": "standing",
+   "x": 836,
+   "y": 735,
+   "w": 25,
+   "h": 24
+  },
+  {
+   "name": "Near heath 1",
+   "file": "35_near_heath_1.svg",
+   "kind": "terrain",
+   "x": 301,
+   "y": 838,
+   "w": 542,
+   "h": 83
+  },
+  {
+   "name": "Near heath 2",
+   "file": "36_near_heath_2.svg",
+   "kind": "terrain",
+   "x": 757,
+   "y": 852,
+   "w": 546,
+   "h": 81
+  },
+  {
+   "name": "Near heath 3",
+   "file": "37_near_heath_3.svg",
+   "kind": "terrain",
+   "x": 1167,
+   "y": 842,
+   "w": 433,
+   "h": 91
+  },
+  {
+   "name": "Rock slab 1",
+   "file": "38_rock_slab_1.svg",
+   "kind": "standing",
+   "x": 417,
+   "y": 843,
+   "w": 101,
+   "h": 14
+  },
+  {
+   "name": "Heather 3",
+   "file": "39_heather_3.svg",
+   "kind": "standing",
+   "x": 701,
+   "y": 865,
+   "w": 22,
+   "h": 12
+  },
+  {
+   "name": "Heather 4",
+   "file": "40_heather_4.svg",
+   "kind": "standing",
+   "x": 1418,
+   "y": 850,
+   "w": 23,
+   "h": 11
+  },
+  {
+   "name": "Boulder 2",
+   "file": "41_boulder_2.svg",
+   "kind": "standing",
+   "x": 1155,
+   "y": 860,
+   "w": 77,
+   "h": 41
+  },
+  {
+   "name": "Juniper 3",
+   "file": "42_juniper_3.svg",
+   "kind": "standing",
+   "x": 1303,
+   "y": 852,
+   "w": 18,
+   "h": 24
+  },
+  {
+   "name": "Cotton grass 1",
+   "file": "43_cotton_grass_1.svg",
+   "kind": "standing",
+   "x": 409,
+   "y": 846,
+   "w": 15,
+   "h": 26
+  },
+  {
+   "name": "Cotton grass 2",
+   "file": "44_cotton_grass_2.svg",
+   "kind": "standing",
+   "x": 877,
+   "y": 863,
+   "w": 13,
+   "h": 22
+  },
+  {
+   "name": "Grass (near)",
+   "file": "45_grass_near.svg",
+   "kind": "terrain",
+   "x": 514,
+   "y": 839,
+   "w": 1024,
+   "h": 69
+  },
+  {
+   "name": "Sheep 6",
+   "file": "46_sheep_6.svg",
+   "kind": "standing",
+   "x": 582,
+   "y": 825,
+   "w": 51,
+   "h": 39
+  },
+  {
+   "name": "Sheep 7",
+   "file": "47_sheep_7.svg",
+   "kind": "standing",
+   "x": 1003,
+   "y": 822,
+   "w": 48,
+   "h": 51
+  },
+  {
+   "name": "Foreground heath 1",
+   "file": "48_foreground_heath_1.svg",
+   "kind": "terrain",
+   "x": 326,
+   "y": 946,
+   "w": 646,
+   "h": 54
+  },
+  {
+   "name": "Foreground heath 2",
+   "file": "49_foreground_heath_2.svg",
+   "kind": "terrain",
+   "x": 904,
+   "y": 952,
+   "w": 696,
+   "h": 48
+  },
+  {
+   "name": "Boulder 3",
+   "file": "50_boulder_3.svg",
+   "kind": "standing",
+   "x": 595,
+   "y": 942,
+   "w": 59,
+   "h": 32
+  },
+  {
+   "name": "Heather 5",
+   "file": "51_heather_5.svg",
+   "kind": "standing",
+   "x": 970,
+   "y": 985,
+   "w": 38,
+   "h": 15
+  },
+  {
+   "name": "Cotton grass 3",
+   "file": "52_cotton_grass_3.svg",
+   "kind": "standing",
+   "x": 546,
+   "y": 940,
+   "w": 14,
+   "h": 35
+  },
+  {
+   "name": "Juniper 4",
+   "file": "53_juniper_4.svg",
+   "kind": "standing",
+   "x": 1556,
+   "y": 955,
+   "w": 24,
+   "h": 37
+  },
+  {
+   "name": "Grass (foreground)",
+   "file": "54_grass_foreground.svg",
+   "kind": "terrain",
+   "x": 479,
+   "y": 947,
+   "w": 1019,
+   "h": 52
+  },
+  {
+   "name": "Boulder 4",
+   "file": "55_boulder_4.svg",
+   "kind": "standing",
+   "x": 1329,
+   "y": 935,
+   "w": 144,
+   "h": 65
+  },
+  {
+   "name": "Shore bank",
+   "file": "56_shore_bank.svg",
+   "kind": "terrain",
+   "x": 244,
+   "y": 686,
+   "w": 115,
+   "h": 314
+  },
+  {
+   "name": "Climber",
+   "file": "57_climber.svg",
+   "kind": "standing",
+   "x": 620,
+   "y": 567,
+   "w": 59,
+   "h": 116
+  },
+  {
+   "name": "Runner",
+   "file": "60_runner.svg",
+   "kind": "standing",
+   "x": 705,
+   "y": 504,
+   "w": 40,
+   "h": 52,
+   "anchor": [
+    725,
+    556
+   ]
+  },
+  {
+   "name": "Skier (climber)",
+   "file": "61_skier_climber.svg",
+   "kind": "standing",
+   "x": 0,
+   "y": 0,
+   "w": 56,
+   "h": 52,
+   "anchor": [
+    642,
+    633
+   ]
+  },
+  {
+   "name": "Skier (kayaker)",
+   "file": "62_skier_kayaker.svg",
+   "kind": "standing",
+   "x": 0,
+   "y": 0,
+   "w": 56,
+   "h": 52,
+   "anchor": [
+    570,
+    657
+   ]
+  },
+  {
+   "name": "Runner (kayaker)",
+   "file": "63_runner_kayaker.svg",
+   "kind": "standing",
+   "x": 0,
+   "y": 0,
+   "w": 40,
+   "h": 52,
+   "anchor": [
+    420,
+    712
+   ]
+  }
+ ]
+}

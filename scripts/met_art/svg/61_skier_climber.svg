@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 52" width="56" height="52">
+  <defs>
+    <radialGradient id="hl" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f7f9fa" stop-opacity="0.9"/>
+      <stop offset="0.35" stop-color="#dbe6ec" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#a9bdc9" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- the climber on skis, coming down the mountain to the left: headlamp, poles, long skis -->
+  <ellipse cx="14" cy="9" rx="11" ry="9" fill="url(#hl)"/>
+  <g fill="none" stroke="#070b11" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2,38 L54,50" stroke-width="3"/>
+    <path d="M25,17 L29,30" stroke-width="5"/>
+    <path d="M29,30 L23,37 L27,45" stroke-width="5"/>
+    <path d="M29,30 L31,38 L35,46" stroke-width="5"/>
+    <path d="M24,19 L18,25 L15,27" stroke-width="4.5"/>
+    <path d="M26,19 L31,25 L34,26" stroke-width="4.5"/>
+    <path d="M15,27 L9,43" stroke-width="2"/>
+    <path d="M34,26 L44,46" stroke-width="2"/>
+  </g>
+  <circle cx="22" cy="11" r="5" fill="#070b11"/>
+  <circle cx="18" cy="10" r="1.4" fill="#ffffff"/>
+</svg>

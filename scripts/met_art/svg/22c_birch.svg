@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="1500 470 140 200" width="140" height="200">
+  <g transform="translate(-5 0)">
+  <!-- a birch right of the cabin: white bark with black marks, branches, a rounded weeping crown. The crown is one
+       colour so met_scene.h can colour it for the season; its branches show when it's bare -->
+  <path d="M1571,548 L1579,548 L1582,662 L1568,662 Z" fill="#9aa7b1"/>
+  <path d="M1560,486 C1566,474 1586,472 1593,484 C1601,496 1604,512 1604,530 C1606,552 1605,578 1599,598 L1594,590
+           L1590,606 L1584,594 L1579,610 L1574,595 L1568,608 L1563,593 L1557,604 L1553,590 L1548,598 C1543,578 1543,552
+           1545,530 C1546,510 1552,496 1560,486 Z" fill="#203a2b"/>
+  <path d="M1575,600 L1574,566 L1560,540 M1575,584 L1592,548 M1574,566 L1583,512 M1575,592 L1553,572 M1583,530 L1594,512
+           M1567,553 L1560,514" fill="none" stroke="#2a1d20" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M1570,612 h11 v7 h-11 Z M1570,633 h12 v7 h-12 Z M1569,649 h13 v7 h-13 Z" fill="#0a1017"/>
+  </g>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 52" width="40" height="52">
+  <defs>
+    <radialGradient id="hl" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f7f9fa" stop-opacity="0.9"/>
+      <stop offset="0.35" stop-color="#dbe6ec" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#a9bdc9" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- the climber, running the ridge to the right: same dark kit, same headlamp -->
+  <ellipse cx="28" cy="10" rx="11" ry="9" fill="url(#hl)"/>
+  <g fill="none" stroke="#070b11" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20,17 L15,30"/>
+    <path d="M20,18 L25,23 L30,19"/>
+    <path d="M19,18 L13,22 L10,27"/>
+    <path d="M15,30 L22,37 L20,47"/>
+    <path d="M15,30 L10,39 L3,41"/>
+  </g>
+  <circle cx="21" cy="10" r="5" fill="#070b11"/>
+  <circle cx="25" cy="9.5" r="1.4" fill="#ffffff"/>
+</svg>

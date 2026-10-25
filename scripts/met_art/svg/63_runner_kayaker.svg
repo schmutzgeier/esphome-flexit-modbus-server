@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 52" width="40" height="52">
+  <!-- the kayaker, running the shore to the right: no headlamp, as in the kayak -->
+  <g fill="none" stroke="#070b11" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20,17 L15,30"/>
+    <path d="M20,18 L25,23 L30,19"/>
+    <path d="M19,18 L13,22 L10,27"/>
+    <path d="M15,30 L22,37 L20,47"/>
+    <path d="M15,30 L10,39 L3,41"/>
+  </g>
+  <circle cx="21" cy="10" r="5" fill="#070b11"/>
+</svg>
