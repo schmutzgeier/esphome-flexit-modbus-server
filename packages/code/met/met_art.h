@@ -1,4 +1,4 @@
-// The landscape for met_scene.h, made by scripts/met_art/build.py from the SVG layers next to it.
+// The landscape for met_heath.cpp, made by scripts/met_art/build.py from the SVG layers next to it.
 // Generated, don't edit: change the SVGs or build.py and run it again.
 #pragma once
 #include <cstdint>

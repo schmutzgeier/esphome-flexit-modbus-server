@@ -5,11 +5,16 @@
 
 namespace flexit::summer_cooling {
 
-static constexpr const char *WHO = "summer cooling";  // its name with the mode arbiter
+static constexpr const char *TAG = "flexit.summer_cooling";
+
+// What a reboot loses
+inline struct State {
+  // Unarmed after somebody changed the mode during cooling, until there is no reason to cool anymore
+  controls::Boost boost{"summer cooling", TAG};
+} state;
 
 // every 30 s. mode: what it asks the arbiter for, 3 = max. quiet: whether quiet_hours.yaml stops it
-inline void tick(int mode = 3, bool quiet = false) {
-  const uint32_t now = millis();
+inline void tick(int mode = flexit_modbus_server::MODE_MAX, bool quiet = false) {
   auto &s = id(server);
   const float inside = s.read_holding_register_temperature(flexit_modbus_server::REG_TEMPERATURE_EXTRACT_AIR);
   const float outside = s.read_holding_register_temperature(flexit_modbus_server::REG_TEMPERATURE_OUTDOOR_AIR);
@@ -21,39 +26,31 @@ inline void tick(int mode = 3, bool quiet = false) {
   const float difference = id(summer_cooling_min_difference).state;
   const float min_outdoor = id(summer_cooling_min_outdoor).state;
 
-  if (id(summer_cooling_active)) {
-    bool stop = false;
-    if (!controls::requesting(WHO)) {
-      // The arbiter drops our request when somebody changes the mode by hand
-      ESP_LOGW("cooling", "Stopping, mode was changed by hand");
-      id(summer_cooling_armed) = false;
-      stop = true;
+  if (state.boost.active) {
+    if (state.boost.dropped()) {
+      state.boost.stop();
     } else if (!id(summer_cooling_enable).state) {
-      ESP_LOGI("cooling", "Stopping, it was disabled");
-      stop = true;
+      ESP_LOGI(TAG, "Stopping, it was disabled");
+      state.boost.stop();
     } else if (heating) {
-      ESP_LOGI("cooling", "Stopping, the heater is on");
-      stop = true;
+      ESP_LOGI(TAG, "Stopping, the heater is on");
+      state.boost.stop();
     } else if (quiet && controls::quiet) {
-      ESP_LOGI("cooling", "Stopping, quiet hours");
-      stop = true;
+      ESP_LOGI(TAG, "Stopping, quiet hours");
+      state.boost.stop();
     } else if (inside < setpoint) {
-      ESP_LOGI("cooling", "Stopping, %.1f°C inside is under the setpoint (%.1f°C)", inside, setpoint);
-      stop = true;
-    } else if (now - id(summer_cooling_start_ms) >= 15 * 60000UL) {
+      ESP_LOGI(TAG, "Stopping, %.1f°C inside is under the setpoint (%.1f°C)", inside, setpoint);
+      state.boost.stop();
+    } else if (state.boost.runtime_ms() >= 15 * 60000UL) {
       // Runs at least 15 minutes. The stop levels are a bit past the start levels, so it doesn't flip in and
       // out of its mode.
       if (inside <= above - 0.5f) {
-        ESP_LOGI("cooling", "Cooled down to %.1f°C, stopping", inside);
-        stop = true;
+        ESP_LOGI(TAG, "Cooled down to %.1f°C, stopping", inside);
+        state.boost.stop();
       } else if (outside >= inside - difference / 2 || outside < min_outdoor - 1.0f) {
-        ESP_LOGI("cooling", "Outdoor air (%.1f°C) is no use anymore, stopping at %.1f°C", outside, inside);
-        stop = true;
+        ESP_LOGI(TAG, "Outdoor air (%.1f°C) is no use anymore, stopping at %.1f°C", outside, inside);
+        state.boost.stop();
       }
-    }
-    if (stop) {
-      id(summer_cooling_active) = false;
-      controls::release(WHO);
     }
     return;
   }
@@ -61,17 +58,15 @@ inline void tick(int mode = 3, bool quiet = false) {
   const bool cool = id(summer_cooling_enable).state && !heating && inside >= above && outside <= inside - difference &&
                     outside >= min_outdoor;
 
-  if (!id(summer_cooling_armed)) {
+  if (!state.boost.armed) {
     if (!cool)
-      id(summer_cooling_armed) = true;
+      state.boost.armed = true;
     return;
   }
 
-  if (cool && !(quiet && controls::quiet) && s.read_holding_register(flexit_modbus_server::REG_MODE) != 0) {
-    ESP_LOGI("cooling", "%.1f°C inside and %.1f°C outside, cooling", inside, outside);
-    id(summer_cooling_active) = true;
-    id(summer_cooling_start_ms) = now;
-    controls::request(WHO, mode);
+  if (cool && !(quiet && controls::quiet) && !controls::stopped()) {
+    ESP_LOGI(TAG, "%.1f°C inside and %.1f°C outside, cooling", inside, outside);
+    state.boost.start(mode);
   }
 }
 

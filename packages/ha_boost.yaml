@@ -14,7 +14,7 @@ switch:
     id: ha_boost
     icon: "mdi:fan-plus"
     restore_mode: ALWAYS_OFF  # after a reboot we no longer know which mode to go back to
-    lambda: return flexit::controls::requesting("home assistant");
+    lambda: return flexit::controls::requested("home assistant") >= 0;
     turn_on_action:
       - lambda: flexit::controls::request("home assistant", ${flexit_ha_boost_mode});
     turn_off_action:

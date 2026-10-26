@@ -1,10 +1,10 @@
-"""Turns the rasterized layers into what met_scene.h draws from: a map of material slots for the landscape, the
+"""Turns the rasterized layers into what met_heath.cpp draws from: a map of material slots for the landscape, the
 aurora's three bands, the figures as small sprites, and a few spots (chimney, door, eaves). Writes met_art.h.
 
     python3 build.py layers.json layers320.npz met_art.h [preview.png]
 
 Each pixel of the landscape gets the slot of the topmost layer covering it, split by the artboard's own shading
-(the mountain's ridge bands, the heath's distance). met_scene.h colours each slot for the light, the season and the
+(the mountain's ridge bands, the heath's distance). met_heath.cpp colours each slot for the light, the season and the
 weather, and uses the artboard's colour at night.
 """
 
@@ -17,7 +17,7 @@ from PIL import Image
 W, H = 320, 240
 ART_Y0, ART_Y1 = 20, 220  # the artboard's rows, see raster.py
 
-# The material slots, in the order met_scene.h's Slot enum has them. depth: 0 the mountain, 1 the far land and
+# The material slots, in the order met_art.h's Slot enum has them. depth: 0 the mountain, 1 the far land and
 # the bay, 2 near. Fog covers depth 0 first and depth 1 when it's thick, like the original's far and middle hills.
 SLOTS = [
     ("SKY", -1),
@@ -112,7 +112,7 @@ def role_of(name):
 
 
 def q4(c):
-    """A float RGB colour as 0xRRGGBB at 4 bits per channel, like met_scene.h's q()."""
+    """A float RGB colour as 0xRRGGBB at 4 bits per channel, like met_scene.h's rgb4()."""
     r, g, b = (int((max(0.0, min(1.0, v)) * 255 + 8) // 17 * 17) for v in c)
     return r << 16 | g << 8 | b
 
@@ -417,7 +417,7 @@ def main():
     with open(out, "w") as f:
         w = f.write
         w(
-            "// The landscape for met_scene.h, made by scripts/met_art/build.py from the SVG layers next to it.\n"
+            "// The landscape for met_heath.cpp, made by scripts/met_art/build.py from the SVG layers next to it.\n"
         )
         w("// Generated, don't edit: change the SVGs or build.py and run it again.\n")
         w("#pragma once\n#include <cstdint>\n\nnamespace flexit::panel::met::art {\n\n")
