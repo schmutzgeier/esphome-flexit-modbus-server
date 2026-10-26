@@ -128,48 +128,48 @@ inline struct HeathShow {
   bool dog_right = false;  // facing right, mirrored
   int deer_x = -1;         // where a reindeer is, -1 none
   bool deer_next = false;  // the visitors take turns
-} HS;
+} HEATH;
 
 // The dog in gait at its x, facing right or left. The gait before goes from the panel, so the dog takes one of
 // its animations.
 inline void dog_as(int gait, bool right) {
-  const HeathSprite &d = HS.dog[gait];
-  if (HS.gait != gait) {
-    if (HS.gait >= 0) {
-      remove(DOG_NAMES[HS.gait], 0, 0);
-      unload(DOG_NAMES[HS.gait]);
+  const HeathSprite &d = HEATH.dog[gait];
+  if (HEATH.gait != gait) {
+    if (HEATH.gait >= 0) {
+      remove(DOG_NAMES[HEATH.gait], 0, 0);
+      unload(DOG_NAMES[HEATH.gait]);
     }
     add(DOG_NAMES[gait], d.frames);
   }
-  place(DOG_NAMES[gait], 0, HS.dog_x, top_at(HS.ground, d, HS.dog_x), {false, 0, HS.gait < 0 ? -1 : 0});
+  place(DOG_NAMES[gait], 0, HEATH.dog_x, top_at(HEATH.ground, d, HEATH.dog_x), {false, 0, HEATH.gait < 0 ? -1 : 0});
   flip(DOG_NAMES[gait], 0, right, false);
-  HS.gait = gait;
-  HS.dog_right = right;
+  HEATH.gait = gait;
+  HEATH.dog_right = right;
 }
 
 inline void dog_next();
 
 // Along the ground to to in gait, then
 inline void dog_go(int gait, int to, float speed, std::function<void()> then) {
-  dog_as(gait, to > HS.dog_x);
-  const HeathSprite &d = HS.dog[gait];
-  uint32_t ms = amble(DOG_NAMES[gait], 0, HS.ground, HS.dog_x, to, speed, d.frames.w / 2, d.feet, 0.6f, 3);
-  HS.dog_x = to;
+  dog_as(gait, to > HEATH.dog_x);
+  const HeathSprite &d = HEATH.dog[gait];
+  uint32_t ms = amble(DOG_NAMES[gait], 0, HEATH.ground, HEATH.dog_x, to, speed, d.frames.w / 2, d.feet, 0.6f, 3);
+  HEATH.dog_x = to;
   later(ms, std::move(then));
 }
 // Where it is in gait for ms, then
 inline void dog_stay(int gait, uint32_t ms, std::function<void()> then) {
-  dog_as(gait, HS.dog_right);
+  dog_as(gait, HEATH.dog_right);
   later(ms, std::move(then));
 }
 
 // What the dog does next: mostly about the hill in front of the cabin, trotting to a new spot, sniffing or sitting
 // wagging, now and then a gallop down the slope toward the shore and back, or after a reindeer
 inline void dog_next() {
-  int home = HS.dog[DOG_SIT].x, x = HS.dog_x;
+  int home = HEATH.dog[DOG_SIT].x, x = HEATH.dog_x;
   float r = rnd(0, 1);
-  if (HS.deer_x >= 0 && r < 0.5f) {
-    int to = std::clamp(HS.deer_x - 14, 150, home + 3);
+  if (HEATH.deer_x >= 0 && r < 0.5f) {
+    int to = std::clamp(HEATH.deer_x - 14, 150, home + 3);
     dog_go(DOG_GALLOP, to, 24, [home] {
       dog_stay(DOG_SNIFF, minutes(0.04f, 0.1f),
                [home] { dog_go(DOG_TROT, home, 9, [] { dog_stay(DOG_SIT, minutes(0.1f, 0.3f), dog_next); }); });
@@ -198,9 +198,9 @@ inline void dog_next() {
 
 inline void the_dog(const Scene &s) {
   for (int g = DOG_SIT; g <= DOG_SNIFF; g++)
-    HS.dog[g] = heath_sprite(s, (HeathKind) (HK_DOG_SIT + g));
-  HS.ground = under(s, 2, HS.dog[DOG_SIT], 3, 7);  // its legs
-  HS.dog_x = HS.dog[DOG_SIT].x;
+    HEATH.dog[g] = heath_sprite(s, (HeathKind) (HK_DOG_SIT + g));
+  HEATH.ground = under(s, 2, HEATH.dog[DOG_SIT], 3, 7);  // its legs
+  HEATH.dog_x = HEATH.dog[DOG_SIT].x;
   dog_stay(DOG_SIT, minutes(0.05f, 0.15f), dog_next);
 }
 
@@ -211,10 +211,10 @@ inline uint32_t deer_visit(const HeathSprite &walk, const HeathSprite &graze, co
   int x0 = walk.x, x1 = (int) rnd(245, 285), mid = walk.frames.w / 2;
   add("hdeerwalk", walk.frames);
   place("hdeerwalk", 0, x0, top_at(ground, walk, x0), {false, 0, 1500});
-  HS.deer_x = x0;
+  HEATH.deer_x = x0;
   uint32_t out = amble("hdeerwalk", 0, ground, x0, x1, 2, mid, walk.feet, 0, 4), eat = minutes(0.25f, 0.5f);
   later(out, [=] {
-    HS.deer_x = x1;
+    HEATH.deer_x = x1;
     remove("hdeerwalk", 0, 0);
     unload("hdeerwalk");
     add("hdeergraze", graze.frames);
@@ -227,7 +227,7 @@ inline uint32_t deer_visit(const HeathSprite &walk, const HeathSprite &graze, co
     place("hdeerwalk", 0, x1, top_at(ground, walk, x1), {false, 0, 0});
     flip("hdeerwalk", 0, true, false);  // drawn facing left, it goes back right
     uint32_t back = amble("hdeerwalk", 0, ground, x1, x0 + 2, 2, mid, walk.feet, 0, 4);
-    later(back, [] { HS.deer_x = -1; });
+    later(back, [] { HEATH.deer_x = -1; });
     remove_later(back, "hdeerwalk", 0, 1500);
     later(back + 2000, [] { unload("hdeerwalk"); });
   });
@@ -257,15 +257,15 @@ inline void visitors(const Scene &s) {
               wal = heath_sprite(s, HK_WALRUS);
   Line ground = under(s, 2, walk);
   sometimes(minutes(5), minutes(0.5f, 3), [=] {
-    HS.deer_next = !HS.deer_next || !walrus;
-    return HS.deer_next ? deer_visit(walk, graze, ground) : walrus_swim(wal);
+    HEATH.deer_next = !HEATH.deer_next || !walrus;
+    return HEATH.deer_next ? deer_visit(walk, graze, ground) : walrus_swim(wal);
   });
 }
 
 // ---- the show
 
 inline void life_on_heath(const Scene &s) {
-  HS = HeathShow{};
+  HEATH = HeathShow{};
   HeathKind m = heath_mountain(s), b = heath_bay(s);
   if (m != HK_NONE)
     mountain(s, m);

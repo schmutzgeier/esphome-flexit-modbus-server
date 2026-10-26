@@ -10,7 +10,7 @@ namespace flexit::panel::met {
 
 static_assert(art::SLOTS == ART_SLOTS, "a colour slot for each of met_art.h's");
 
-static constexpr int HZ = 157;                   // the bay's far edge on the artboard
+static constexpr int BAY_Y = 157;                // the bay's far edge on the artboard
 static constexpr int POLE_X = 276;               // the flagpole on flag days, by the cabin
 static constexpr int MOON_HALO_R = 19;           // the artboard moon's halo and glow
 static constexpr int MOON_GLOW_HR = 13;          // (MOON_R is the same as the other landscapes')
@@ -309,7 +309,7 @@ static void fog_edges(Scene &s, const Now &n, uint32_t seed) {
   for (int f = 0; f < 2; f++)
     for (int x = 0; x < W; x++) {
       bool on = f == 0 ? n.fog > 15 : n.fog > 45;
-      int edge = f == 0 ? HZ - 14 - (int) (n.fog * 0.1f) : 178 - (int) (n.fog * 0.12f);
+      int edge = f == 0 ? BAY_Y - 14 - (int) (n.fog * 0.1f) : 178 - (int) (n.fog * 0.12f);
       s.fog_top[f][x] = (uint8_t) (on ? edge + (int) (3 * sinf(x / 17.0f + ph + f)) : NONE);
     }
 }
@@ -340,8 +340,8 @@ static void bay(Scene &s, const Now &n, const Day &d) {
   h.swell = clamp01((d.wave - BFT_WAVE[d.bft]) / 2);
   float amp = std::max(0.0f, 2.7f * sqrtf(d.wave) - 0.6f),  // at the bottom, px
       len = (10 + 7 * powf(d.wave, 0.6f)) * (1 + 0.8f * h.swell);
-  for (int y = HZ + 2; y < H && h.nsea < SEA_ROWS;) {
-    float p = (y - HZ) / (float) (H - HZ), g = 0.25f + 0.75f * p;
+  for (int y = BAY_Y + 2; y < H && h.nsea < SEA_ROWS;) {
+    float p = (y - BAY_Y) / (float) (H - BAY_Y), g = 0.25f + 0.75f * p;
     int a = (int) lroundf(amp * g);
     h.sea_y[h.nsea] = (int16_t) y;
     h.sea_a[h.nsea] = (uint8_t) a;
@@ -354,7 +354,7 @@ static void bay(Scene &s, const Now &n, const Day &d) {
   h.surf_rock = d.wave >= 3 ? std::min(4.0f, (d.wave - 2) * 0.6f) : 0;
   h.hz_x0 = W;
   h.hz_x1 = -1;
-  for (int i = GROUND_ROW[HZ + 1 - GROUND_Y0], x = 0; i < GROUND_ROW[HZ + 2 - GROUND_Y0]; i += 2) {
+  for (int i = GROUND_ROW[BAY_Y + 1 - GROUND_Y0], x = 0; i < GROUND_ROW[BAY_Y + 2 - GROUND_Y0]; i += 2) {
     if (GROUND[i] == S_SEA_FAR || GROUND[i] == S_SEA_NEAR) {
       h.hz_x0 = (int16_t) std::min<int>(h.hz_x0, x);
       h.hz_x1 = (int16_t) (x + GROUND[i + 1] - 1);
@@ -698,12 +698,12 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
         out[x] = ix[C_STREAK];
     }
   }
-  if (h.bft >= 11 && y < HZ && y >= HZ - 10 * (h.bft - 10))  // the air over the bay full of spray
+  if (h.bft >= 11 && y < BAY_Y && y >= BAY_Y - 10 * (h.bft - 10))  // the air over the bay full of spray
     for (int x = 0; x <= h.hz_x1 + 6 && x < W; x++)
-      if (hash8((uint32_t) x, (uint32_t) y, h.sea_seed + 4) < 50u - (HZ - y) * 2u)
+      if (hash8((uint32_t) x, (uint32_t) y, h.sea_seed + 4) < 50u - (BAY_Y - y) * 2u)
         out[x] = ix[C_FOAM];
   if (y >= GROUND_Y0) {  // the landscape, the bay with its waves and the light on it, and the fog
-    int dy = y - HZ, spread = 1 + dy / 9;
+    int dy = y - BAY_Y, spread = 1 + dy / 9;
     uint32_t glints = 256;  // calm it's a column of light, rougher it breaks into glints
     bool shine = s.shine_x >= 0;
     if (h.bft == 0) {
@@ -718,7 +718,7 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
       spread = 2 + dy / 4;
       glints = 70;
     }
-    float g = 0.4f + 0.6f * dy / (H - HZ);  // nearer, more surf
+    float g = 0.4f + 0.6f * dy / (H - BAY_Y);  // nearer, more surf
     int surf = (int) lroundf(h.surf * g), surf_rock = (int) lroundf(h.surf_rock * g);
     auto sea = [](int k) { return k == S_SEA_FAR || k == S_SEA_NEAR; };
     auto rock = [](int k) { return k == S_ROCK_LIGHT || k == S_ROCK_DARK; };
@@ -748,8 +748,8 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
         } else if (k == S_WINDOW && h.indoors && x >= INDOORS_X && x < INDOORS_X + 7 && y >= INDOORS_Y &&
                    y < INDOORS_Y + 13 && (INDOORS[y - INDOORS_Y] >> (6 - (x - INDOORS_X)) & 1)) {
           c = ix[C_ART + (int) S_BLACK];
-        } else if (!k && y > HZ - h.bumps && x >= h.hz_x0 && x <= h.hz_x1 &&
-                   HZ - y < (int) (hash8((uint32_t) x / 3, 9, h.sea_seed) % (uint32_t) (h.bumps + 1))) {
+        } else if (!k && y > BAY_Y - h.bumps && x >= h.hz_x0 && x <= h.hz_x1 &&
+                   BAY_Y - y < (int) (hash8((uint32_t) x / 3, 9, h.sea_seed) % (uint32_t) (h.bumps + 1))) {
           c = ix[C_ART + (int) S_SEA_FAR];  // the biggest waves break the horizon
         }
         if ((d <= 0 && y >= s.fog_top[0][x]) || (d <= 1 && y >= s.fog_top[1][x]))
