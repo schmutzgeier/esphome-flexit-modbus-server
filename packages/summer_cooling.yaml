@@ -6,6 +6,8 @@
 substitutions:
   # The mode it asks for: 2 = normal, 3 = max. Normal only does something while the unit runs in min.
   flexit_summer_cooling_mode: "3"
+  # "true": it doesn't run in quiet_hours.yaml's window, and stops when it begins
+  flexit_summer_cooling_quiet: "false"
 
 esphome:
   includes:
@@ -108,4 +110,4 @@ binary_sensor:
 interval:
   - interval: 30s
     then:
-      - lambda: flexit::summer_cooling::tick(${flexit_summer_cooling_mode});
+      - lambda: flexit::summer_cooling::tick(${flexit_summer_cooling_mode}, ${flexit_summer_cooling_quiet});

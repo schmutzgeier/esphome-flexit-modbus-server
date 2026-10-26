@@ -20,7 +20,7 @@ template<typename Time, typename Start, typename End> void tick(Time *clock, Sta
   if (enabled && now.is_valid() && start->has_state() && end->has_state())
     quiet = in_window(now.hour * 60 + now.minute, start->hour * 60 + start->minute, end->hour * 60 + end->minute);
   if (quiet != controls::quiet) {
-    ESP_LOGI("quiet", quiet ? "Quiet hours, humidity boosts won't start" : "Quiet hours over");
+    ESP_LOGI("quiet", quiet ? "Quiet hours" : "Quiet hours over");
   }
   controls::quiet = quiet;
 }

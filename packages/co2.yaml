@@ -9,6 +9,8 @@ substitutions:
   flexit_co2_sensor: co2
   # The mode Stepped asks for: 2 = normal, 3 = max
   flexit_co2_stepped_mode: "3"
+  # "true": it's off in quiet_hours.yaml's window, a running boost stops and the fan speeds go back
+  flexit_co2_quiet: "false"
 
 esphome:
   includes:
@@ -134,4 +136,4 @@ binary_sensor:
 interval:
   - interval: 30s
     then:
-      - lambda: flexit::co2::tick(id(${flexit_co2_sensor}), ${flexit_co2_stepped_mode});
+      - lambda: flexit::co2::tick(id(${flexit_co2_sensor}), ${flexit_co2_stepped_mode}, ${flexit_co2_quiet});

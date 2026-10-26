@@ -49,14 +49,16 @@ inline void setting(uint16_t reg, uint16_t value) {
   }
 }
 
-// every 30 s. stepped_mode: what Stepped asks the arbiter for, 3 = max
-template<typename Sensor> void tick(Sensor *sensor, int stepped_mode = 3) {
+// every 30 s. stepped_mode: what Stepped asks the arbiter for, 3 = max. quiet: whether quiet_hours.yaml turns it
+// off, the boost and the fan speeds
+template<typename Sensor> void tick(Sensor *sensor, int stepped_mode = 3, bool quiet = false) {
   const uint32_t now = millis();
   auto &s = id(server);
 
   // 0 = Off, 1 = Stepped, 2 = Proportional, 3 = PI
   const auto index = id(co2_control).active_index();
-  const int control = index.has_value() ? (int) *index : 0;
+  const bool quiet_now = quiet && controls::quiet;
+  const int control = index.has_value() && !quiet_now ? (int) *index : 0;
 
   const float ppm = sensor->state;
   const bool valid = sensor->has_state() && !std::isnan(ppm);
@@ -76,6 +78,9 @@ template<typename Sensor> void tick(Sensor *sensor, int stepped_mode = 3) {
       // The arbiter drops our request when somebody changes the mode by hand
       ESP_LOGW("co2", "Stopping boost, mode was changed by hand");
       boost_armed = false;
+      stop = true;
+    } else if (quiet_now) {
+      ESP_LOGI("co2", "Stopping boost, quiet hours");
       stop = true;
     } else if (request->second != wanted_mode) {
       ESP_LOGI("co2", "Stopping boost, CO2 control was changed");

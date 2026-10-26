@@ -1,6 +1,8 @@
 # Quiet hours. Humidity boosts don't start in this window, so the fans stay down at night. A boost that is
 # already running ends as usual. CO2 control, fireplace mode, summer cooling, the Humidity Boost switch and
-# changes by hand aren't affected: bad air at night still gets ventilated. Start and end can be changed in Home Assistant, these are only the first values.
+# changes by hand aren't affected by default: bad air at night still gets ventilated. flexit_humidity_boost_quiet: "false"
+# lets humidity boosts start here too, flexit_summer_cooling_quiet: "true" and flexit_co2_quiet: "true"
+# keep summer cooling and CO2 control out of it. Start and end can be changed in Home Assistant, these are only the first values.
 # Needs core.yaml and controls.yaml, and Home Assistant for the time
 substitutions:
   flexit_quiet_start: "23:00"

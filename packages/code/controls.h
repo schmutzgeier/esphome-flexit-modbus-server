@@ -15,7 +15,8 @@ inline uint32_t sent_ms;       // when
 inline bool confirmed = true;  // the CS60 runs it, or 30 s have passed
 inline int user_mode = -1;     // the user's mode when we last looked, -1 = not yet
 
-// quiet_hours.yaml: humidity boosts don't start while it's true, the ones running end as usual
+// quiet_hours.yaml: true in the window. Humidity boosts don't start (the ones running end as usual), and summer
+// cooling and CO2 control don't run if flexit_summer_cooling_quiet / flexit_co2_quiet are on
 inline bool quiet;
 
 // Runs the highest mode asked for as a temporary one, and the user's mode again once nobody asks. The server

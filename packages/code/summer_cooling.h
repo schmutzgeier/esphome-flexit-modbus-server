@@ -7,8 +7,8 @@ namespace flexit::summer_cooling {
 
 static constexpr const char *WHO = "summer cooling";  // its name with the mode arbiter
 
-// every 30 s. mode: what it asks the arbiter for, 3 = max
-inline void tick(int mode = 3) {
+// every 30 s. mode: what it asks the arbiter for, 3 = max. quiet: whether quiet_hours.yaml stops it
+inline void tick(int mode = 3, bool quiet = false) {
   const uint32_t now = millis();
   auto &s = id(server);
   const float inside = s.read_holding_register_temperature(flexit_modbus_server::REG_TEMPERATURE_EXTRACT_AIR);
@@ -33,6 +33,9 @@ inline void tick(int mode = 3) {
       stop = true;
     } else if (heating) {
       ESP_LOGI("cooling", "Stopping, the heater is on");
+      stop = true;
+    } else if (quiet && controls::quiet) {
+      ESP_LOGI("cooling", "Stopping, quiet hours");
       stop = true;
     } else if (inside < setpoint) {
       ESP_LOGI("cooling", "Stopping, %.1f°C inside is under the setpoint (%.1f°C)", inside, setpoint);
@@ -64,7 +67,7 @@ inline void tick(int mode = 3) {
     return;
   }
 
-  if (cool && s.read_holding_register(flexit_modbus_server::REG_MODE) != 0) {
+  if (cool && !(quiet && controls::quiet) && s.read_holding_register(flexit_modbus_server::REG_MODE) != 0) {
     ESP_LOGI("cooling", "%.1f°C inside and %.1f°C outside, cooling", inside, outside);
     id(summer_cooling_active) = true;
     id(summer_cooling_start_ms) = now;

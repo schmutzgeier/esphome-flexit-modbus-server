@@ -59,8 +59,8 @@ template<typename Sensor> optional<float> above_baseline(Sensor *humidity) {
   return delta;
 }
 
-// every 10 s
-template<typename Sensor> void tick(Sensor *sensor) {
+// every 10 s. quiet: whether quiet_hours.yaml keeps boosts from starting
+template<typename Sensor> void tick(Sensor *sensor, bool quiet = true) {
   const uint32_t now = millis();
 
   // Reasons to stop come first. They have to work without a humidity reading, otherwise a dead sensor
@@ -115,7 +115,7 @@ template<typename Sensor> void tick(Sensor *sensor) {
       return;
     if (id(server).read_holding_register(flexit_modbus_server::REG_MODE) == 0)
       return;  // stopped
-    if (controls::quiet)
+    if (quiet && controls::quiet)
       return;  // quiet_hours.yaml
     if (delta >= id(humidity_trigger_delta).state) {
       ESP_LOGI("humidity", "Humidity %.1f%% is %.1f%% above the baseline (%.1f%%)", humidity, delta, baseline);
