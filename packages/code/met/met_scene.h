@@ -54,6 +54,7 @@ enum : uint16_t {
   L_BONFIRE = 1 << 10,  // its flames, sparks and smoke, the logs stay
   L_ANTENNA = 1 << 11,  // its red light
   L_BOAT = 1 << 12,
+  L_HEATH = 1 << 13,  // the heath's people, dog, reindeer and walrus
 };
 struct Options {
   Ground ground = G_HILLS;
@@ -178,7 +179,7 @@ struct Sprite {
   uint32_t rows[24];             // leftmost pixel in the highest of w bits
 };
 inline constexpr int SPRITES = 32;
-static_assert(L_BOAT < 1 << 14, "the L_* fit Sprite::tag");
+static_assert(L_HEATH < 1 << 14, "the L_* fit Sprite::tag");
 
 // The land's shape, which only depends on the place and the landscape, so it's kept from one scene to the next
 struct Land {

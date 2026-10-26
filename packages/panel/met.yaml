@@ -12,7 +12,8 @@
 # to 6. Some hours a reindeer and a walrus. The bay goes by the Beaufort scale, its waves as high as MET's
 # Oceanforecast says, asked for at the check after the forecast; inland it has none (a 422) and we ask again the
 # next day. Streaks in the air above the bay show the wind too. "Panel Weather Forecast" draws the forecast over the
-# picture with the wind, and on the heath the wave height in the bay.
+# picture with the wind, and on the heath the wave height in the bay. With "Panel Animation Weather" on, the heath's
+# people, dog, reindeer and walrus move whenever someone's outside, before the weather's animations.
 # Weather data: MET Norway, CC BY 4.0.
 defaults:
   name: weather

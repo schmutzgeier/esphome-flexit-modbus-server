@@ -3,6 +3,7 @@
 #pragma once
 #include "met_live.h"
 #include "met_live_days.h"
+#include "met_live_heath.h"
 #include "met_live_land.h"
 #include "met_live_sky.h"
 #include "met_live_town.h"
@@ -48,6 +49,9 @@ inline const Show SHOWS[] = {
      [](const Scene &s) { return s.at.may17 && !s.at.dark && !s.at.rain; }},
     {"Easter", L_FLAG, easter, nullptr, nullptr,
      [](const Scene &s) { return s.at.easter_days && s.neggs && !s.at.dark; }},
+    // the heath's people, dog and visitors, whenever someone's out, before the weather
+    {"Life on the heath", L_HEATH, life_on_heath, nullptr, heath_cast,
+     [](const Scene &s) { return s.ground == G_HEATH && s.heath.nfig > 0; }},
     // the weather
     {"Thunderstorm", L_PREC | L_BOLT, thunderstorm, prec_redo, nullptr,
      [](const Scene &s) { return s.at.thunder; }},

@@ -264,9 +264,10 @@ inline int hill_high(const Scene &s, int l, int r) {
 
 // Copy i of n from x0 to x1 along the hill, a step every step px or so at speed px/s, and with downhill quicker
 // downhill and slower uphill. Its top is dy above the hill's top under its middle, mid px in. Returns the ms it
-// takes.
-inline uint32_t amble(const char *n, int i, const NearHill &h, int x0, int x1, float speed, int mid, int dy,
-                      float downhill = 0, int step = 12) {
+// takes. h is a NearHill, or another line with at(x).
+template<class Line>
+uint32_t amble(const char *n, int i, const Line &h, int x0, int x1, float speed, int mid, int dy, float downhill = 0,
+               int step = 12) {
   int steps = std::max(1, abs(x1 - x0) / step), px = x0, py = h.at(x0 + mid) - dy;
   uint32_t t = 0;
   for (int k = 1; k <= steps; k++) {

@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include "met_art.h"
+#include "met_heath_live.h"
 #include "met_raster.h"
 
 namespace flexit::panel::met {
@@ -460,13 +461,15 @@ static void flag_pride(Scene &s, int x, int y) {
 
 // Now and then, while it's light: a reindeer from the rock carvings in the ochre they're painted with, peeking out of
 // the trees behind the cabin or walking out of them over the hour, and a walrus swimming in the bay. Each hour
-// rolls its own, apart from the rest so nothing else moves.
+// rolls its own, apart from the rest so nothing else moves. The show on the heath brings its own, see
+// met_live_heath.h.
 static void animals(Scene &s, const Now &n, const Day &d) {
   if (n.light <= 0)
     return;
   Rng a{(uint32_t) (n.t / 3600) * 2654435761u + 77};
   int minute = (int) (n.local % 3600 / 60), deer = a.in(0, 99);
   uint32_t ochre = mix(0x4A2618, 0x9E4A2E, n.light);  // the walrus is that reddish brown too, one colour for both
+  s.tag = L_HEATH;
   if (deer >= 50) {  // half the hours not there, then peeking, then walking out a pixel every five minutes
     int x = deer < 80 ? art::TREES_X + a.in(0, 2) : art::TREES_X - minute / 5;
     sprite_rows(sprite(s, x, art::DOOR_Y + 1 - 10, 11, 11, 1, ochre), DEER);
@@ -488,6 +491,7 @@ static void animals(Scene &s, const Now &n, const Day &d) {
     sprite_rows(sprite(s, x, y, 11, 3, 1, ochre), body);
     sprite_rows(sprite(s, dir < 0 ? x : x + 6, y + 3, 5, 2, 1, s.rgb[C_WHITE]), tusks);
   }
+  s.tag = 0;
 }
 
 void heath_life(Scene &s, const Now &n, Rng &rng) {
@@ -759,7 +763,8 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
     span(out, h.smoke_x[d], h.smoke_x[d] + h.smoke_w - 1, ix[C_SMOKE]);
   if (s.pole_x >= 0 && y >= s.pole_top && y <= s.pole_base)  // the flagpole
     out[s.pole_x] = ix[C_ART + (int) S_BLACK];
-  for (int i = 0; i < h.nfig; i++) {  // the people, with the headlamp's glow, in the fog where it's thick enough
+  // the people, with the headlamp's glow, in the fog where it's thick enough. The show on the heath has them.
+  for (int i = 0; i < h.nfig && !(s.live & L_HEATH); i++) {
     const Figure &f = *FIGURES[h.fig[i]];
     auto fogged = [&](int x) {
       return (f.depth <= 0 && y >= s.fog_top[0][x]) || (f.depth <= 1 && y >= s.fog_top[1][x]);
@@ -791,14 +796,266 @@ void heath_drawn(const Scene &s, Colours &u) {
   u.set(C_FOAM, h.look.cap || h.look.streak || h.surf > 0 || h.surf_rock > 0 || h.bft >= 11);
   u.set(C_SHINE, s.shine_x >= 0);
   u.set(C_STREAK, h.nstreaks > 0);
-  u.set(C_FIG, h.nfig > 0);
+  bool out = h.nfig > 0 && !(s.live & L_HEATH);
+  u.set(C_FIG, out);
   bool lamp = false;
   for (int i = 0; i < h.nfig; i++)
     lamp = lamp || FIGURES[h.fig[i]]->lamp_x >= 0;
-  u.set(C_LAMP, h.lamp && lamp);
-  u.set(C_LAMP_GLOW, h.lamp && lamp);
+  u.set(C_LAMP, out && h.lamp && lamp);
+  u.set(C_LAMP_GLOW, out && h.lamp && lamp);
   u.set(C_SMOKE, h.nsmoke > 0 && !(s.live & L_SMOKE));
 }
+
+// ---------------------------------------------------------------- the characters for the show
+
+namespace live {
+
+// A pose, w x h: 0 nothing, 1 dark, 2 light (headlamp, rim, tusks), 3 the headlamp's glow
+struct Pose {
+  int w, h;
+  std::vector<uint8_t> px;
+  Pose(int w_, int h_) : w(w_), h(h_), px((size_t) (w_ * h_)) {}
+  uint8_t at(int x, int y) const { return x >= 0 && y >= 0 && x < w && y < h ? px[(size_t) (y * w + x)] : 0; }
+  void set(int x, int y, uint8_t v) {
+    if (x >= 0 && y >= 0 && x < w && y < h)
+      px[(size_t) (y * w + x)] = v;
+  }
+  // rows y0 to y1 - 1 one way, then put back dy rows down. Their pixels only, what's around stays.
+  void move(int x0, int y0, int x1, int y1, int dx, int dy) {
+    Pose was = *this;
+    for (int y = y0; y < y1; y++)
+      for (int x = x0; x < x1; x++)
+        if (was.at(x, y))
+          set(x, y, 0);
+    for (int y = y0; y < y1; y++)
+      for (int x = x0; x < x1; x++)
+        if (uint8_t v = was.at(x, y))
+          set(x + dx, y + dy, v);
+  }
+  // rows y0 to y1 - 1 mirrored about the middle of what's in them, a step of the legs
+  void mirror_rows(int y0, int y1) {
+    int l = w, r = -1;
+    for (int y = y0; y < y1; y++)
+      for (int x = 0; x < w; x++)
+        if (at(x, y) == 1 || at(x, y) == 2)
+          l = std::min(l, x), r = std::max(r, x);
+    Pose was = *this;
+    for (int y = y0; y < y1; y++)
+      for (int x = l; x <= r; x++)
+        set(x, y, was.at(l + r - x, y));
+  }
+  // everything up by n rows
+  Pose up(int n) const {
+    Pose p(w, h);
+    for (int y = n; y < h; y++)
+      for (int x = 0; x < w; x++)
+        p.set(x, y - n, at(x, y));
+    return p;
+  }
+};
+
+// The poses as frames in colours pal[1..3]
+static Frames frames_of(std::vector<Pose> poses, std::vector<uint16_t> delays, std::array<uint32_t, 4> pal) {
+  Frames f;
+  f.w = poses[0].w;
+  f.h = poses[0].h;
+  f.delays = std::move(delays);
+  f.draw = [poses = std::move(poses), pal](int k, const Canvas &c) {
+    const Pose &p = poses[(size_t) k % poses.size()];
+    for (int y = 0; y < p.h; y++)
+      for (int x = 0; x < p.w; x++)
+        if (uint8_t v = p.at(x, y))
+          c.put(x, y, pal[v]);
+  };
+  return f;
+}
+
+// The figure in a pose pad px in from the left and right, top px down
+static Pose pose_of(const art::Figure &f, int pad, int top) {
+  Pose p(f.w + 2 * pad, f.h + top + pad);
+  for (int y = 0; y < f.h; y++) {
+    const uint8_t *row = f.px + y * ((f.w + 3) / 4);
+    for (int x = 0; x < f.w; x++)
+      p.set(x + pad, y + top, (uint8_t) (row[x / 4] >> (x % 4 * 2) & 3));
+  }
+  return p;
+}
+
+// A bitmap of w-bit rows, leftmost pixel highest, as value v at x0, y0
+static void put_bits(Pose &p, const uint32_t *rows, int w, int h, int x0, int y0, uint8_t v) {
+  for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+      if (rows[y] >> (w - 1 - x) & 1)
+        p.set(x0 + x, y0 + y, v);
+}
+
+// The headlamp's glow under the figure, a disc of radius 3 round cx, cy
+static void glow(Pose &p, int cx, int cy) {
+  for (int dy = -3; dy <= 3; dy++) {
+    int r = half(dy, 3, 3);
+    for (int dx = -r; dx <= r; dx++)
+      if (!p.at(cx + dx, cy + dy))
+        p.set(cx + dx, cy + dy, 3);
+  }
+}
+
+// A person in 4 frames: as drawn, a bob, the bottom legs rows a step on (above skis rows of skis, which stay), and
+// a bob. The headlamp's glow in them while it's on.
+static HeathSprite figure(const Scene &s, const art::Figure &f, int legs, int skis, int ms) {
+  bool lamp = s.heath.lamp && f.lamp_x >= 0;
+  int pad = lamp ? 3 : 0, top = pad + 1;  // a row for the bob
+  Pose a = pose_of(f, pad, top), b = a;
+  b.mirror_rows(top + f.h - skis - legs, top + f.h - skis);
+  std::vector<Pose> poses = {a, a.up(1), b, b.up(1)};
+  for (int k = 0; lamp && k < 4; k++)
+    glow(poses[(size_t) k], f.lamp_x - f.x + pad, f.lamp_y - f.y + top - k % 2);
+  uint32_t fig = s.rgb[C_FIG];
+  return {frames_of(poses, {(uint16_t) ms, (uint16_t) ms, (uint16_t) ms, (uint16_t) ms},
+                    {0, fig, lamp ? s.rgb[C_LAMP] : fig, s.rgb[C_LAMP_GLOW]}),
+          f.x - pad, f.y - top, top + f.h};
+}
+
+// The kayak with its paddle at four angles through the paddler's hands, right blade in, flat, left, flat
+static HeathSprite kayak(const Scene &s) {
+  const art::Figure &f = art::KAYAKER;
+  Pose body = pose_of(f, 0, 0);
+  for (int y = 0; y < f.h; y++)  // the art's paddle and splash go, the hull, the paddler and the stern stay
+    for (int x = 0; x < f.w; x++)
+      if (y == 15 || (y <= 12 && !(x >= 11 && x <= 17 && y >= 5) && !(y == 12 && x >= 22)))
+        body.set(x, y, 0);
+  static const float DIR[4][2] = {{0.6f, 0.8f}, {0.95f, 0.3f}, {-0.6f, 0.8f}, {-0.95f, 0.3f}};
+  std::vector<Pose> poses;
+  for (const float *d : DIR) {
+    Pose p = body;
+    for (float t = -7.5f; t <= 7.5f; t += 0.25f) {
+      int x = (int) lroundf(16.5f + t * d[0]), y = (int) lroundf(6 + t * d[1]);
+      if (y <= 12)  // the blade under water from there
+        p.set(x, y, 1);
+    }
+    int bx = (int) lroundf(16.5f + 7.5f * d[0]);  // a splash where the blade's in
+    if (d[1] > 0.5f)
+      p.set(bx, 15, 1);
+    poses.push_back(p);
+  }
+  return {frames_of(poses, {320, 220, 320, 220}, {0, s.rgb[C_FIG], s.rgb[C_FIG], 0}), f.x, f.y, f.h - 1};
+}
+
+// The dog, facing left as drawn, in a gait. Only its legs, head and tail move, its feet stay on the ground. Two
+// rows above it as room for the head.
+static HeathSprite dog(const Scene &s, HeathKind k) {
+  const art::Figure &f = art::DOG;
+  Pose a = pose_of(f, 0, 2);
+  std::vector<Pose> poses;
+  std::vector<uint16_t> ms;
+  if (k == HK_DOG_SIT) {  // its tail wags
+    Pose b = a, c = a;
+    b.set(7, 3, 0), b.set(7, 2, 1);
+    c.set(7, 3, 0), c.set(8, 3, 1);
+    poses = {a, b, a, c};
+    ms = {160, 160, 160, 160};
+  } else if (k == HK_DOG_TROT) {  // legs apart and together
+    Pose b = a;
+    b.move(3, 10, 5, 12, -1, 0);
+    b.move(7, 10, 8, 12, 1, 0);
+    poses = {a, b};
+    ms = {150, 150};
+  } else if (k == HK_DOG_GALLOP) {  // legs stretched out, then gathered under it
+    Pose b = a, c = a;
+    b.move(3, 9, 5, 12, -2, 0);
+    b.move(7, 9, 8, 12, 1, 0);
+    c.move(3, 10, 5, 12, 1, 0);
+    c.move(7, 10, 8, 12, -1, 0);
+    poses = {b, c};
+    ms = {110, 110};
+  } else {  // its nose down in the heather, sniffing
+    Pose b = a, c = a;
+    b.move(0, 2, 3, 5, 0, 2);
+    c.move(0, 2, 3, 5, 0, 3);
+    poses = {b, c, b, b};
+    ms = {300, 200, 300, 500};
+  }
+  uint32_t black = s.rgb[C_ART + (int) art::S_BLACK];
+  return {frames_of(poses, ms, {0, black, black, 0}), f.x, f.y - 2, f.h + 2};
+}
+
+// a reindeer's legs a step on, rows 8 to 10 of DEER
+static const uint32_t DEER_STEP[3] = {0x04A, 0x08A, 0x10A};
+
+static uint32_t ochre(const Scene &s) { return mix(0x4A2618, 0x9E4A2E, s.at.light); }
+
+static HeathSprite deer(const Scene &s, HeathKind k) {
+  Pose a(11, 11);
+  put_bits(a, DEER, 11, 11, 0, 0, 1);
+  std::vector<Pose> poses;
+  std::vector<uint16_t> ms;
+  if (k == HK_DEER_WALK) {
+    Pose b(11, 11);
+    put_bits(b, DEER, 11, 8, 0, 0, 1);
+    put_bits(b, DEER_STEP, 11, 3, 0, 8, 1);
+    poses = {a, b};
+    ms = {260, 260};
+  } else {  // its head down to the lichen and up a little, chewing
+    Pose b = a, c = a;
+    b.move(0, 0, 6, 5, 0, 3);
+    c.move(0, 0, 6, 5, 0, 2);
+    poses = {b, c, b, b};
+    ms = {700, 400, 600, 900};
+  }
+  return {frames_of(poses, ms, {0, ochre(s), 0, 0}), art::TREES_X, art::DOOR_Y + 1 - 10, 11};
+}
+
+// The walrus facing left, coming up out of the water, head and tusks, and going down again
+static HeathSprite walrus(const Scene &s) {
+  std::vector<Pose> poses;
+  for (int rows : {0, 1, 2, 3, 2, 1}) {
+    Pose p(11, 5);
+    put_bits(p, WALRUS + 0, 11, rows, 0, 3 - rows, 1);  // the top rows at the water line, the rest under it
+    if (rows == 3)
+      put_bits(p, TUSKS, 5, 2, 0, 3, 2);
+    poses.push_back(p);
+  }
+  return {frames_of(poses, {1500, 500, 500, 2600, 500, 500}, {0, ochre(s), s.rgb[C_WHITE], 0}), 20, 160, 3};
+}
+
+HeathKind heath_mountain(const Scene &s) {
+  if (s.heath.nfig < 1)
+    return HK_NONE;
+  return s.heath.fig[0] == F_RUNNER ? HK_RUN : s.heath.fig[0] == F_SKIER_CLIMBER ? HK_SKI : HK_CLIMB;
+}
+
+HeathKind heath_bay(const Scene &s) {
+  if (s.heath.nfig < 2)
+    return HK_NONE;
+  return s.heath.fig[1] == F_RUNNER_KAYAKER  ? HK_RUN_SHORE
+         : s.heath.fig[1] == F_SKIER_KAYAKER ? HK_SKI_SHORE
+                                             : HK_KAYAK;
+}
+
+HeathSprite heath_sprite(const Scene &s, HeathKind k) {
+  switch (k) {
+    case HK_CLIMB:
+      return figure(s, art::CLIMBER, 3, 0, 420);
+    case HK_RUN:
+      return figure(s, art::RUNNER, 3, 0, 140);
+    case HK_SKI:
+      return figure(s, art::SKIER_CLIMBER, 2, 1, 260);
+    case HK_KAYAK:
+      return kayak(s);
+    case HK_RUN_SHORE:
+      return figure(s, art::RUNNER_KAYAKER, 2, 0, 140);
+    case HK_SKI_SHORE:
+      return figure(s, art::SKIER_KAYAKER, 2, 1, 260);
+    case HK_DEER_WALK:
+    case HK_DEER_GRAZE:
+      return deer(s, k);
+    case HK_WALRUS:
+      return walrus(s);
+    default:
+      return dog(s, k);
+  }
+}
+
+}  // namespace live
 
 // ---------------------------------------------------------------- fitting the panel
 
