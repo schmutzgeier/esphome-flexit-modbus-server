@@ -1101,11 +1101,8 @@ inline void clouds(Scene &s, const Now &n) {
       s.cloud_layer[s.nclouds++] = (uint8_t) l;
       int width = l == 0 ? r.in(60, 120) : l == 1 ? r.in(48, 86) : r.in(70, 128);
       c.x = (int16_t) ((k * FIELD) / count + r.in(-20, 20) + FIELD) % FIELD;
-      c.base = (int16_t) ((l == 0   ? r.in(6, 30)
-                           : l == 1 ? r.in(26, 56)
-                                    : r.in(48, 86)) +
-                          (s.overlay ? 34 : 0));  // high, or under the forecast when it's on
-      if (l == 0) {                               // high ones are thin streaks
+      c.base = (int16_t) (l == 0 ? r.in(20, 64) : l == 1 ? r.in(62, 102) : r.in(100, 146));
+      if (l == 0) {  // high ones are thin streaks
         c.n = (uint8_t) r.in(2, 3);
         for (int j = 0; j < c.n; j++)
           c.e[j] = {(int16_t) (width * (j + 1) / (c.n + 1) + r.in(-8, 8)), (int16_t) (c.base - r.in(0, 6)),
