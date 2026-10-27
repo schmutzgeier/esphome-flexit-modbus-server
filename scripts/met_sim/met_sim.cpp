@@ -223,11 +223,11 @@ static bool check(const Case &c) {
   if (live::heath_bay(scene) == live::HK_NONE && scene.heath.nfig < 3)
     return true;
   live::HeathSprite dog = live::heath_sprite(scene, live::HK_DOG_SIT);
-  // the highest ground under its legs, columns 3 to 7 of it, without single tufts of heather as heath_line()
+  // the highest ground under its legs, columns 3 to 9 of it, without single tufts of heather as heath_line()
   live::Line ground_line = live::heath_line(scene, 2, 0);
   auto legs_ground = [&](int x) {
     int g = H;
-    for (int dx = 3; dx <= 7; dx++)
+    for (int dx = 3; dx <= 9; dx++)
       g = std::min(g, ground_line.at(x + dx));
     return g;
   };

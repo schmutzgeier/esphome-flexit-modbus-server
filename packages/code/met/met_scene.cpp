@@ -14,34 +14,6 @@ static bool has(const Weather &w, const char *s) { return strstr(w.symbol, s) !=
 
 // ---------------------------------------------------------------- the forecast over the picture
 
-// 5x7 font. '^' is the degree sign.
-struct Glyph {
-  char c;
-  uint8_t w;
-  Bitmap<7> b;
-};
-// clang-format off: a glyph a line
-static constexpr Glyph FONT[] = {
-    {'0', 5, bitmap<7>(5, ".xxx.|x...x|x..xx|x.x.x|xx..x|x...x|.xxx.")},
-    {'1', 5, bitmap<7>(5, "..x..|.xx..|..x..|..x..|..x..|..x..|.xxx.")},
-    {'2', 5, bitmap<7>(5, ".xxx.|x...x|....x|...x.|..x..|.x...|xxxxx")},
-    {'3', 5, bitmap<7>(5, "xxxxx|...x.|..x..|...x.|....x|x...x|.xxx.")},
-    {'4', 5, bitmap<7>(5, "...x.|..xx.|.x.x.|x..x.|xxxxx|...x.|...x.")},
-    {'5', 5, bitmap<7>(5, "xxxxx|x....|xxxx.|....x|....x|x...x|.xxx.")},
-    {'6', 5, bitmap<7>(5, "..xx.|.x...|x....|xxxx.|x...x|x...x|.xxx.")},
-    {'7', 5, bitmap<7>(5, "xxxxx|....x|...x.|..x..|.x...|.x...|.x...")},
-    {'8', 5, bitmap<7>(5, ".xxx.|x...x|x...x|.xxx.|x...x|x...x|.xxx.")},
-    {'9', 5, bitmap<7>(5, ".xxx.|x...x|x...x|.xxxx|....x|...x.|.xx..")},
-    {'-', 4, bitmap<7>(4, "....|....|....|xxxx|....|....|....")},
-    {'.', 2, bitmap<7>(2, "..|..|..|..|..|xx|xx")},
-    {'^', 4, bitmap<7>(4, ".xx.|x..x|x..x|.xx.|....|....|....")},
-    {'m', 5, bitmap<7>(5, ".....|.....|xx.x.|x.x.x|x.x.x|x.x.x|x.x.x")},
-    {'/', 5, bitmap<7>(5, "....x|...x.|...x.|..x..|.x...|.x...|x....")},
-    {'s', 5, bitmap<7>(5, ".....|.....|.xxxx|x....|.xxx.|....x|xxxx.")},
-    {' ', 2, bitmap<7>(2, "..|..|..|..|..|..|..")},
-};
-// clang-format on
-
 // 9x9 icons
 static constexpr Bitmap<9> ICON_SUN = bitmap<9>(9, "....x....|"
                                                    ".x.....x.|"
@@ -136,7 +108,10 @@ static void ov_put(Scene &s, int x, int y, int v) {
     *b = (uint8_t) ((*b & ~(3 << (x % 4 * 2))) | v << (x % 4 * 2));
 }
 
-// A bitmap of w-bit rows scaled k times. Pass 1 draws its outline, pass 2 the bitmap.
+// The text's shadow, px down and right, as the panel's clock band has it
+static constexpr int SHADOW = 2;
+
+// A bitmap of w-bit rows scaled k times. Pass 1 draws its shadow, pass 2 the bitmap.
 template<typename T> static void ov_bitmap(Scene &s, int x0, int y0, const T *rows, int w, int h, int k, int pass) {
   for (int r = 0; r < h; r++)
     for (int c = 0; c < w; c++) {
@@ -147,34 +122,45 @@ template<typename T> static void ov_bitmap(Scene &s, int x0, int y0, const T *ro
           int x = x0 + c * k + dx, y = y0 + r * k + dy;
           if (pass == 2)
             ov_put(s, x, y, 2);
-          else  // two pixels round, so it reads over a white cloud too
-            for (int oy = -2; oy <= 2; oy++)
-              for (int ox = -2; ox <= 2; ox++)
-                if (abs(ox) + abs(oy) < 4)
-                  ov_put(s, x + ox, y + oy, 1);
+          else if (ov_get(s, x + SHADOW, y + SHADOW) != 2)  // not over what's drawn already
+            ov_put(s, x + SHADOW, y + SHADOW, 1);
         }
     }
 }
 
-static int ov_text_width(const char *t, int k) {
-  int w = 0;
-  for (; *t; t++)
-    for (const Glyph &g : FONT)
-      if (g.c == *t)
-        w += (g.w + 1) * k;
-  return w > 0 ? w - k : 0;
+static const FontGlyph *glyph_of(const Font &f, char c) {
+  for (int i = 0; i < f.n; i++)
+    if (f.glyphs[i].c == c)
+      return &f.glyphs[i];
+  return nullptr;
 }
 
-void ov_text(Scene &s, int x, int y, const char *t, int k) {
-  for (int pass = 1; pass <= 2; pass++) {  // all outlines first, so they don't cut into the letters
+int ov_text_width(const char *t, const Font &f) {
+  int w = 0;
+  for (; *t; t++)
+    if (const FontGlyph *g = glyph_of(f, *t))
+      w += g->adv;
+  return w;
+}
+
+void ov_text(Scene &s, int x, int y, const char *t, const Font &f) {
+  int base = y + f.line_height - f.base_line;  // the baseline's row, y is the line's top
+  for (int pass = 1; pass <= 2; pass++) {      // all shadows first, so they don't cut into the letters
     int cx = x;
     for (const char *p = t; *p; p++)
-      for (const Glyph &g : FONT)
-        if (g.c == *p) {
-          ov_bitmap(s, cx, y, g.b.row, g.w, 7, k, pass);
-          cx += (g.w + 1) * k;
-        }
+      if (const FontGlyph *g = glyph_of(f, *p)) {
+        ov_bitmap(s, cx + g->x, base - g->y - g->h, FONT_ROWS + g->row, g->w, g->h, 1, pass);
+        cx += g->adv;
+      }
   }
+}
+
+// A temperature with the degree sign, its minus an en dash as the panel writes it
+static void temp_text(char *b, size_t n, float t) {
+  snprintf(b, n, "%d^", iround(t));
+  for (; *b; b++)
+    if (*b == '-')
+      *b = '~';
 }
 
 static void ov_icon(Scene &s, int x, int y, Icon i, int k) {
@@ -215,34 +201,35 @@ int marks(const Weather &w, uint32_t t, Offset offset, int *at) {
   return k;
 }
 
-// Now at top left with the rain and the wind, the next four 3-hour marks at top right, each with its wind
+// Now at top left with the rain and the wind, the next four 3-hour marks at top right, each with its wind. In the
+// clock band's Noto Sans: its 40 px for the temperature now, 16 px and 14 px for the rest.
 static void forecast(Scene &s, const Weather &w, uint32_t t, Offset offset) {
   char b[16];
   Hour now = now_of(w, t);
   ov_icon(s, 6, 7, now.icon != I_NONE ? now.icon : icon_of(w.symbol), 3);
-  snprintf(b, sizeof b, "%d^", iround(now.temp));
-  ov_text(s, 46, 6, b, 4);
-  int wy = 42;                                 // the rain, then the wind: an arrow the way it blows and its speed
+  temp_text(b, sizeof b, now.temp);
+  ov_text(s, 46, 0, b, FONT_BIG);
+  int wy = 40;                                 // the rain, then the wind: an arrow the way it blows and its speed
   if (now.time == w.time && w.rain >= 0.1f) {  // the rain is only known for the first hour
     snprintf(b, sizeof b, "%.1f mm", w.rain);
-    ov_text(s, 8, 42, b, 2);
-    wy = 60;
+    ov_text(s, 8, 40, b, FONT_MEDIUM);
+    wy = 58;
   }
-  ov_arrow(s, 8, wy - 2, now.wind_from, 2);
+  ov_arrow(s, 8, wy + 1, now.wind_from, 2);
   snprintf(b, sizeof b, "%d m/s", iround(now.wind));
-  ov_text(s, 30, wy, b, 2);
+  ov_text(s, 30, wy, b, FONT_MEDIUM);
   int at[4], n = marks(w, t, offset, at);
   for (int col = 0; col < n; col++) {
     const Hour &h = w.hour[at[col]];
     int cx = W - 6 - (4 - col) * 40 + 20;  // middle of the column
     snprintf(b, sizeof b, "%02d", local_hour(h.time, offset));
-    ov_text(s, cx - ov_text_width(b, 2) / 2, 6, b, 2);
-    ov_icon(s, cx - 9, 24, h.icon, 2);
-    snprintf(b, sizeof b, "%d^", iround(h.temp));
-    ov_text(s, cx - ov_text_width(b, 2) / 2 + 2, 46, b, 2);
-    ov_arrow(s, cx - 17, 66, h.wind_from, 1);  // and the wind then
+    ov_text(s, cx - ov_text_width(b, FONT_SMALL) / 2, 2, b, FONT_SMALL);
+    ov_icon(s, cx - 9, 22, h.icon, 2);
+    temp_text(b, sizeof b, h.temp);
+    ov_text(s, cx - ov_text_width(b, FONT_MEDIUM) / 2 + 2, 40, b, FONT_MEDIUM);
+    ov_arrow(s, cx - 17, 62, h.wind_from, 1);  // and the wind then
     snprintf(b, sizeof b, "%d", iround(h.wind));
-    ov_text(s, cx - 5, 64, b, 2);
+    ov_text(s, cx - 5, 59, b, FONT_SMALL);
   }
 }
 
@@ -563,7 +550,7 @@ static void stars(Scene &s, const Now &n) {
     s.star_x[i] = (int16_t) r.in(0, W - 1);
     s.star_y[i] = (int16_t) r.in(2, 132);
   }
-  s.rgb[C_STAR] = 0xFFFFFF;  // same white as the forecast text
+  s.rgb[C_STAR] = 0xFFFFFF;
   s.rgb[C_DIM] = s.aurora ? s.rgb[C_STAR] : mix(s.rgb[C_SKY + 1], 0xE8EEFA, 0.4f);
   Turn turn = turn_at(n.lat, n.lon, j2000(n.t));
   const float rad = (float) kRad;
@@ -1109,7 +1096,7 @@ static void holidays(Scene &s, const Now &n, Rng &rng) {
 static void overlay(Scene &s, const Now &n, Offset offset) {
   s.overlay = true;
   memset(s.ov, 0, OV_H * sizeof *s.ov);
-  s.rgb[C_TEXT] = rgb4(255, 255, 255);
+  s.rgb[C_TEXT] = rgb4(0xD4, 0xDC, 0xDE);  // the clock band's
   // outline in the darkest colour already in the picture, if it's dark enough
   uint32_t cand[] = {s.rgb[C_SKY], s.rgb[C_HILL], s.rgb[C_HILL + 1], s.rgb[C_HILL + 2], s.rgb[C_SHADE + 2]};
   auto luma = [](uint32_t c) { return (int) ((c >> 16) * 3 + (c >> 8 & 255) * 6 + (c & 255)) / 10; };

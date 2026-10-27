@@ -295,7 +295,8 @@ earlier the further north. The bay goes by the Beaufort scale, as in MET's wind 
 table: a mirror when it's calm, then ripples, white horses, foam crests and streaks, spray, and white water in a
 hurricane. Its waves are as high as MET's ocean forecast (Oceanforecast 2.0) says, or as the table has them for the
 wind where there's none: inland MET answers 422, and the ESP asks again the next day. With `Panel Weather Forecast`
-on, MET's wave height is written in the bay. Streaks in the air above the bay show the wind too, and the flag flies
+on, MET's wave height is written at the bottom left, under the panel's date. The forecast is in the
+clock band's Noto Sans with its shadow (`scripts/met_font` takes the characters from the panel firmware's fonts). Streaks in the air above the bay show the wind too, and the flag flies
 by the cabin on flag days, the rainbow flag on 28 June. The weather right now is also an item, so it can be a
 dashboard tile, and the cabin's chimney smokes when the heater is on. The landscape comes from the SVG layers in
 `scripts/met_art`, see its README to change it. A failed request with `Code: 304` in the log is fine, the forecast

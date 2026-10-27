@@ -1,5 +1,6 @@
 // The heath, see met_heath.h
 #include "met_heath.h"
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include "met_art.h"
@@ -88,10 +89,100 @@ static Day day_of(const Now &n) {
 
 // ---------------------------------------------------------------- the figures
 
+// The dog, a black Norwegian Buhund, facing left: pointed ears up, a wedge of a head, a square body and its thick
+// tail curled over its back, which it keeps curled when it runs. # black, o the sheen on its back, ruff and tail,
+// w the white toes of its front paw, the back paws are black. Its feet are on the art's dog's, the same row in every
+// pose.
+enum Buhund : uint8_t { B_STAND, B_WAG, B_TROT, B_TROT_2, B_GALLOP, B_GALLOP_2, B_SNIFF, B_POSES };
+static constexpr int BUHUND_W = 12, BUHUND_H = 10;
+static const int BUHUND_X = art::DOG.x - 2, BUHUND_Y = art::DOG.y + art::DOG.h - BUHUND_H;
+// clang-format off: a pose a block, a row a line
+static const char *const BUHUND[B_POSES][BUHUND_H] = {
+    {"..#.#.......",  // standing
+     "..###...ooo.",
+     ".####..o###o",
+     "####...##.##",
+     "..o#oooo####",
+     "..o#########",
+     "...########.",
+     "...##...##..",
+     "...##...##..",
+     "...w#...##.."},
+    {"..#.#.......",  // its curl wagging over its back
+     "..###....ooo",
+     ".####...o###",
+     "####...###.#",
+     "..o#oooo####",
+     "..o#########",
+     "...########.",
+     "...##...##..",
+     "...##...##..",
+     "...w#...##.."},
+    {"..#.#.......",  // trotting, its legs apart
+     "..###...ooo.",
+     ".####..o###o",
+     "####...##.##",
+     "..o#oooo####",
+     "..o#########",
+     "...########.",
+     "..##....##..",
+     ".##......##.",
+     ".w#.......##"},
+    {"..#.#.......",  // and together
+     "..###...ooo.",
+     ".####..o###o",
+     "####...##.##",
+     "..o#oooo####",
+     "..o#########",
+     "...########.",
+     "...##..##...",
+     "...##..##...",
+     "...w#..##..."},
+    {"............",  // galloping, stretched out
+     "..#.#...ooo.",
+     "..###..o###o",
+     ".####..##.##",
+     "####oooo####",
+     "..o#########",
+     ".o#########.",
+     "##.......###",
+     "#.........##",
+     "w..........#"},
+    {"..#.#.......",  // and gathered
+     "..###...ooo.",
+     ".####..o###o",
+     "####...##.##",
+     "..o#oooo####",
+     "..o#########",
+     "...########.",
+     "....##.##...",
+     "....####....",
+     "....w###...."},
+    {"............",  // its nose down in the heather
+     "........ooo.",
+     ".......o###o",
+     "..#.#..##.##",
+     "..###ooo####",
+     ".o##########",
+     "####.######.",
+     "##.##...##..",
+     "...##...##..",
+     "...w#...##.."},
+};
+// clang-format on
+
+// Pose p at x, y: 0 nothing, 1 black, 2 sheen, 3 white
+static int buhund_at(int p, int x, int y) {
+  if (x < 0 || y < 0 || x >= BUHUND_W || y >= BUHUND_H)
+    return 0;
+  char c = BUHUND[p][y][x];
+  return c == '#' ? 1 : c == 'o' ? 2 : c == 'w' ? 3 : 0;
+}
+
 enum Fig : uint8_t { F_CLIMBER, F_RUNNER, F_SKIER_CLIMBER, F_KAYAKER, F_RUNNER_KAYAKER, F_SKIER_KAYAKER, F_DOG };
 static const art::Figure *const FIGURES[] = {&art::CLIMBER, &art::RUNNER,         &art::SKIER_CLIMBER,
                                              &art::KAYAKER, &art::RUNNER_KAYAKER, &art::SKIER_KAYAKER,
-                                             &art::DOG};
+                                             &art::DOG};  // the dog's place; it's drawn as BUHUND
 
 // The three of them behind the big window, 7 by 13 from its top left, leftmost pixel in bit 6: someone standing,
 // someone sitting, and the dog's head between them. They keep off its edges so it still reads as a window, and its
@@ -103,8 +194,67 @@ static constexpr int INDOORS_X = art::WINDOW_X - 4, INDOORS_Y = art::WINDOW_Y - 
 static const int8_t MARIA[6][4] = {{-3, -3, 2, 2}, {1, -4, 2, 1}, {3, -1, 2, 2},
                                    {-5, 1, 2, 3},  {-1, 3, 2, 1}, {4, 2, 1, 1}};
 
-// a reindeer as in the rock carvings, facing left, 11 wide
-static const uint32_t DEER[11] = {0x540, 0x380, 0x100, 0x380, 0x680, 0x0FE, 0x0FF, 0x07E, 0x052, 0x092, 0x091};
+// The reindeer from the rock carvings, facing left: antlers up from its head, a long back, thin straight legs.
+// Bigger than the dog. Its feet are where the old one's were.
+enum Reindeer : uint8_t { R_STAND, R_WALK, R_GRAZE, R_POSES };
+static constexpr int DEER_W = 17, DEER_H = 15, DEER_Y = art::DOOR_Y + 1 - DEER_H + 1;
+// clang-format off: a pose a block, a row a line
+static const char *const DEER[R_POSES][DEER_H] = {
+    {"..#...#..........",  // standing
+     "..#.#.#..........",
+     "...###...........",
+     "#..#.#...........",
+     ".#.###...........",
+     "..##.............",
+     ".####............",
+     "#####............",
+     "...###...........",
+     "....############.",
+     "....#############",
+     ".....###########.",
+     ".....#.#....#.#..",
+     ".....#.#....#.#..",
+     ".....#.#....#.#.."},
+    {"..#...#..........",  // a step on
+     "..#.#.#..........",
+     "...###...........",
+     "#..#.#...........",
+     ".#.###...........",
+     "..##.............",
+     ".####............",
+     "#####............",
+     "...###...........",
+     "....############.",
+     "....#############",
+     ".....###########.",
+     "....#..#...#..#..",
+     "...#...#...#...#.",
+     "...#....#.#....#."},
+    {".................",  // its head down to the lichen
+     ".................",
+     ".................",
+     ".................",
+     ".................",
+     ".................",
+     ".................",
+     "...#...#.........",
+     "...#.#.#.........",
+     "....###.########.",
+     "..#.#.##########.",
+     "...############..",
+     "..###.#.#...#.#..",
+     ".####.#.#...#.#..",
+     "####..#.#...#.#.."},
+};
+// clang-format on
+
+// Pose p's row y, leftmost pixel in the highest of DEER_W bits, for a sprite
+static uint32_t deer_row(int p, int y) {
+  uint32_t r = 0;
+  for (int x = 0; x < DEER_W; x++)
+    r |= (uint32_t) (DEER[p][y][x] == '#') << (DEER_W - 1 - x);
+  return r;
+}
 // a walrus swimming, facing left: its head and back at the water, 11 wide, and its tusks, 5 wide
 static const uint32_t WALRUS[3] = {0x3C0, 0x7E2, 0x7FF};
 static const uint32_t TUSKS[2] = {0x009, 0x009};
@@ -472,7 +622,10 @@ static void animals(Scene &s, const Now &n, const Day &d) {
   s.tag = L_HEATH;
   if (deer >= 50) {  // half the hours not there, then peeking, then walking out a pixel every five minutes
     int x = deer < 80 ? art::TREES_X + a.in(0, 2) : art::TREES_X - minute / 5;
-    sprite_rows(sprite(s, x, art::DOOR_Y + 1 - 10, 11, 11, 1, ochre), DEER);
+    uint32_t rows[DEER_H];
+    for (int r = 0; r < DEER_H; r++)
+      rows[r] = deer_row(R_STAND, r);
+    sprite_rows(sprite(s, x, DEER_Y, DEER_W, DEER_H, 1, ochre), rows);
   }
   int walrus = a.in(0, 99), x = a.in(4, 40), y = a.in(0, 16), dir = a.in(0, 1) ? 1 : -1;
   if (y < 6) {  // out at the back of the bay, behind the kayak, where the bay is narrower
@@ -589,11 +742,11 @@ void heath_overlay(Scene &s, const Now &n) {
       out = c;
   if (luma(out) > 70)
     out = rgb4(17, 17, 34);
-  if (n.w.wave >= 0) {  // and Oceanforecast's wave height, in the bay
+  if (n.w.wave >= 0) {  // and Oceanforecast's wave height, under the panel's date, at its left edge
     char b[8];
-    snprintf(b, sizeof b, n.w.wave < 9.95f ? "%.1fm" : "%.0fm", n.w.wave);
+    snprintf(b, sizeof b, n.w.wave < 9.95f ? "%.1f m" : "%.0f m", n.w.wave);
     s.heath.sea_text = true;
-    ov_text(s, SEA_OV_X + 12, SEA_OV_Y + 4, b, 2);
+    ov_text(s, SEA_TEXT_X, SEA_TEXT_BASE - (FONT_TINY.line_height - FONT_TINY.base_line), b, FONT_TINY);
   }
 }
 
@@ -775,13 +928,22 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
         if (!fogged(x))
           out[x] = ix[C_LAMP_GLOW];
     }
+    if (h.fig[i] == F_DOG) {  // the Buhund, standing
+      const uint8_t COL[4] = {0, ix[C_ART + (int) S_BLACK], ix[C_ART + (int) S_ROCK_DARK], ix[C_WHITE]};
+      for (int c = 0; c < BUHUND_W; c++) {
+        int v = buhund_at(B_STAND, c, y - BUHUND_Y), x = BUHUND_X + c;
+        if (v && x >= 0 && x < W && !fogged(x))
+          out[x] = COL[v];
+      }
+      continue;
+    }
     if (y < f.y || y >= f.y + f.h)
       continue;
     const uint8_t *px = f.px + (y - f.y) * ((f.w + 3) / 4);
     for (int c = 0; c < f.w; c++) {
       int v = px[c / 4] >> (c % 4 * 2) & 3, x = f.x + c;
-      if (v && x >= 0 && x < W && !fogged(x))  // the dog in the artboard's black, as it was drawn
-        out[x] = v == 2 && h.lamp ? ix[C_LAMP] : h.fig[i] == F_DOG ? ix[C_ART + (int) S_BLACK] : ix[C_FIG];
+      if (v && x >= 0 && x < W && !fogged(x))
+        out[x] = v == 2 && h.lamp ? ix[C_LAMP] : ix[C_FIG];
     }
   }
 }
@@ -804,6 +966,7 @@ void heath_drawn(const Scene &s, Colours &u) {
   u.set(C_LAMP, out && h.lamp && lamp);
   u.set(C_LAMP_GLOW, out && h.lamp && lamp);
   u.set(C_SMOKE, h.nsmoke > 0 && !(s.live & L_SMOKE));
+  u.set(C_WHITE, out && h.nfig >= 3);  // the dog's toes
 }
 
 // ---------------------------------------------------------------- the characters for the show
@@ -940,68 +1103,55 @@ static HeathSprite kayak(const Scene &s) {
   return {frames_of(poses, {320, 220, 320, 220}, {0, s.rgb[C_FIG], s.rgb[C_FIG], 0}), f.x, f.y, f.h - 1};
 }
 
-// The dog, facing left as drawn, in a gait. Only its legs, head and tail move, its feet stay on the ground. Two
-// rows above it as room for the head.
+// The Buhund in a gait, its feet on the ground in every frame, its tail curled over its back
 static HeathSprite dog(const Scene &s, HeathKind k) {
-  const art::Figure &f = art::DOG;
-  Pose a = pose_of(f, 0, 2);
+  auto pose = [](int p) {
+    Pose a(BUHUND_W, BUHUND_H);
+    for (int y = 0; y < BUHUND_H; y++)
+      for (int x = 0; x < BUHUND_W; x++)
+        a.set(x, y, (uint8_t) buhund_at(p, x, y));
+    return a;
+  };
   std::vector<Pose> poses;
   std::vector<uint16_t> ms;
-  if (k == HK_DOG_SIT) {  // its tail wags
-    Pose b = a, c = a;
-    b.set(7, 3, 0), b.set(7, 2, 1);
-    c.set(7, 3, 0), c.set(8, 3, 1);
-    poses = {a, b, a, c};
-    ms = {160, 160, 160, 160};
-  } else if (k == HK_DOG_TROT) {  // legs apart and together
-    Pose b = a;
-    b.move(3, 10, 5, 12, -1, 0);
-    b.move(7, 10, 8, 12, 1, 0);
-    poses = {a, b};
+  if (k == HK_DOG_SIT) {  // the curl sways
+    poses = {pose(B_STAND), pose(B_WAG)};
+    ms = {300, 240};
+  } else if (k == HK_DOG_TROT) {
+    poses = {pose(B_TROT), pose(B_TROT_2)};
     ms = {150, 150};
-  } else if (k == HK_DOG_GALLOP) {  // legs stretched out, then gathered under it
-    Pose b = a, c = a;
-    b.move(3, 9, 5, 12, -2, 0);
-    b.move(7, 9, 8, 12, 1, 0);
-    c.move(3, 10, 5, 12, 1, 0);
-    c.move(7, 10, 8, 12, -1, 0);
-    poses = {b, c};
+  } else if (k == HK_DOG_GALLOP) {
+    poses = {pose(B_GALLOP), pose(B_GALLOP_2)};
     ms = {110, 110};
-  } else {  // its nose down in the heather, sniffing
-    Pose b = a, c = a;
-    b.move(0, 2, 3, 5, 0, 2);
-    c.move(0, 2, 3, 5, 0, 3);
-    poses = {b, c, b, b};
-    ms = {300, 200, 300, 500};
+  } else {  // nose down, a look up, down again
+    poses = {pose(B_SNIFF), pose(B_SNIFF), pose(B_STAND), pose(B_SNIFF)};
+    ms = {500, 300, 400, 600};
   }
-  uint32_t black = s.rgb[C_ART + (int) art::S_BLACK];
-  return {frames_of(poses, ms, {0, black, black, 0}), f.x, f.y - 2, f.h + 2};
+  return {frames_of(poses, ms,
+                    {0, s.rgb[C_ART + (int) art::S_BLACK], s.rgb[C_ART + (int) art::S_ROCK_DARK], s.rgb[C_WHITE]}),
+          BUHUND_X, BUHUND_Y, BUHUND_H};
 }
-
-// a reindeer's legs a step on, rows 8 to 10 of DEER
-static const uint32_t DEER_STEP[3] = {0x04A, 0x08A, 0x10A};
 
 static uint32_t ochre(const Scene &s) { return mix(0x4A2618, 0x9E4A2E, s.at.light); }
 
 static HeathSprite deer(const Scene &s, HeathKind k) {
-  Pose a(11, 11);
-  put_bits(a, DEER, 11, 11, 0, 0, 1);
+  auto pose = [](int p) {
+    Pose a(DEER_W, DEER_H);
+    for (int y = 0; y < DEER_H; y++)
+      for (int x = 0; x < DEER_W; x++)
+        a.set(x, y, DEER[p][y][x] == '#');
+    return a;
+  };
   std::vector<Pose> poses;
   std::vector<uint16_t> ms;
   if (k == HK_DEER_WALK) {
-    Pose b(11, 11);
-    put_bits(b, DEER, 11, 8, 0, 0, 1);
-    put_bits(b, DEER_STEP, 11, 3, 0, 8, 1);
-    poses = {a, b};
-    ms = {260, 260};
-  } else {  // its head down to the lichen and up a little, chewing
-    Pose b = a, c = a;
-    b.move(0, 0, 6, 5, 0, 3);
-    c.move(0, 0, 6, 5, 0, 2);
-    poses = {b, c, b, b};
-    ms = {700, 400, 600, 900};
+    poses = {pose(R_STAND), pose(R_WALK)};
+    ms = {300, 300};
+  } else {  // its head down to the lichen, now and then up for a look
+    poses = {pose(R_GRAZE), pose(R_GRAZE), pose(R_STAND)};
+    ms = {1500, 900, 1100};
   }
-  return {frames_of(poses, ms, {0, ochre(s), 0, 0}), art::TREES_X, art::DOOR_Y + 1 - 10, 11};
+  return {frames_of(poses, ms, {0, ochre(s), 0, 0}), art::TREES_X, DEER_Y, DEER_H};
 }
 
 // The walrus facing left, coming up out of the water, head and tusks, and going down again

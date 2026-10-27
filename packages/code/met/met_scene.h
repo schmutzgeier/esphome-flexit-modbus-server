@@ -210,9 +210,12 @@ struct Light {  // one of the Christmas spruce's
   uint8_t c;  // 0 red, 1 warm, 2 green
 };
 
-// The heath's bay by the Beaufort scale, and where its wave height is written, low in the bay
+// The heath's bay by the Beaufort scale, and where its wave height is written: under the date on the panel's clock
+// band, the bottom 74 rows, at the date's left edge (x 16) with its baseline at SEA_TEXT_BASE, the last rows under
+// the date's descenders
 inline constexpr int SEA_ROWS = 32;  // rows of waves on the bay at most
-inline constexpr int SEA_OV_X = 0, SEA_OV_Y = 218, SEA_OV_W = 64, SEA_OV_H = 22;
+inline constexpr int SEA_OV_X = 0, SEA_OV_Y = 226, SEA_OV_W = 80, SEA_OV_H = H - SEA_OV_Y;
+inline constexpr int SEA_TEXT_X = 16, SEA_TEXT_BASE = 238;
 // How the sea looks at a Beaufort force, see met_heath.cpp's SEA_LOOK
 struct SeaLook {
   uint8_t crest, cap, cap_from, foam, streak, spray;

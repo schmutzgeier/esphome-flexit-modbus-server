@@ -199,7 +199,7 @@ inline void dog_next() {
 inline void the_dog(const Scene &s) {
   for (int g = DOG_SIT; g <= DOG_SNIFF; g++)
     HEATH.dog[g] = heath_sprite(s, (HeathKind) (HK_DOG_SIT + g));
-  HEATH.ground = under(s, 2, HEATH.dog[DOG_SIT], 3, 7);  // its legs
+  HEATH.ground = under(s, 2, HEATH.dog[DOG_SIT], 3, 9);  // its legs
   HEATH.dog_x = HEATH.dog[DOG_SIT].x;
   dog_stay(DOG_SIT, minutes(0.05f, 0.15f), dog_next);
 }

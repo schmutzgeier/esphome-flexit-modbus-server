@@ -394,8 +394,10 @@ inline void fetch(bool waves = false) {
 }
 
 // Whether to ask for the waves now: once MET Norway has answered for the forecast, and not before the last
-// answer's Expires
-inline bool sea_due() { return answered && due() && now_s() >= sea_not_before; }
+// answer's Expires. Not only when the forecast is due too: met.yaml asks for that first, so they'd never come.
+inline bool sea_due() {
+  return answered && network::is_connected() && id(flexit_panel_time).now().is_valid() && now_s() >= sea_not_before;
+}
 inline void fetch_sea() { fetch(true); }
 
 // Oceanforecast's answer, as fetched() for the forecast. Inland it's a 422, or a document without waves; then

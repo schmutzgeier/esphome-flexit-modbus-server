@@ -3,6 +3,7 @@
 // the year, a reindeer and a walrus. met_scene.cpp and met_raster.cpp hand it their parts of the scene where it's
 // the heath. Plain C++ without ESPHome, see met_scene.h.
 #pragma once
+#include "met_font.h"
 #include "met_scene.h"
 
 namespace flexit::panel::met {
@@ -13,7 +14,9 @@ void sprite_rows(Sprite *p, const uint32_t *rows);
 Sprite *blob(Scene &s, int cx, int cy, int rx, int ry, int layer, uint32_t c);
 Sprite *box(Scene &s, int x, int y, int w, int h, int layer, uint32_t c);
 void flag_norway(Scene &s, int x, int y, int dir, uint32_t red, uint32_t white, uint32_t blue);
-void ov_text(Scene &s, int x, int y, const char *t, int k);
+// Text in a font of met_font.h, y the top of its line
+void ov_text(Scene &s, int x, int y, const char *t, const Font &f);
+int ov_text_width(const char *t, const Font &f);
 
 // ---- for build()
 
