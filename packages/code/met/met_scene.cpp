@@ -243,7 +243,7 @@ Sprite *sprite(Scene &s, int x, int y, int w, int h, int layer, uint32_t c) {
   p = Sprite{};
   p.x = (int16_t) x;
   p.y = (int16_t) y;
-  p.w = (uint8_t) (w > 32 ? 32 : w);
+  p.w = (uint8_t) (w > 64 ? 64 : w);
   p.h = (uint8_t) (h > 24 ? 24 : h);
   p.layer = (uint16_t) layer;
   p.tag = s.tag;
@@ -259,7 +259,7 @@ void sprite_rows(Sprite *p, const uint32_t *rows) {
 
 static void sprite_set(Sprite *p, int x, int y) {
   if (p && x >= 0 && x < p->w && y >= 0 && y < p->h)
-    p->rows[y] |= 1u << (p->w - 1 - x);
+    p->rows[y] |= 1ull << (p->w - 1 - x);
 }
 
 // a filled disc as a sprite
@@ -281,7 +281,7 @@ Sprite *box(Scene &s, int x, int y, int w, int h, int layer, uint32_t c) {
   Sprite *p = sprite(s, x, y, w, h, layer, c);
   if (p)
     for (int r = 0; r < p->h; r++)
-      p->rows[r] = p->w == 32 ? 0xFFFFFFFFu : (1u << p->w) - 1;
+      p->rows[r] = p->w == 64 ? ~0ull : (1ull << p->w) - 1;
   return p;
 }
 
