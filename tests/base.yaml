@@ -1,0 +1,22 @@
+# What every test config has: stricter warnings than a normal build (CI fails on any warning from our own code, see
+# check_warnings.sh), the network, and the components from this checkout.
+esphome:
+  build_flags:
+    - -Wall
+    - -Wextra
+    - -Wno-unused-parameter
+    - -Wsign-compare
+    - -Wunused-but-set-variable
+    - -Wunused-variable
+
+api:
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: "ci"
+  password: "ci-password"
+
+# The components from this checkout, not GitHub
+substitutions:
+  flexit_component_source: ../esphome/components

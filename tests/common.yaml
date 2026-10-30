@@ -1,26 +1,4 @@
-# Stricter warnings than a normal build. CI fails on any warning from our own
-# code, see check_warnings.sh.
-esphome:
-  build_flags:
-    - -Wall
-    - -Wextra
-    - -Wno-unused-parameter
-    - -Wsign-compare
-    - -Wunused-but-set-variable
-    - -Wunused-variable
-
-api:
-ota:
-  - platform: esphome
-
-wifi:
-  ssid: "ci"
-  password: "ci-password"
-
-# The components from this checkout, not GitHub
-substitutions:
-  flexit_component_source: ../esphome/components
-
+# Every package there is, with stand-ins for the sensors they want
 packages:
   core: !include ../packages/core.yaml
   controls: !include ../packages/controls.yaml
@@ -36,6 +14,7 @@ packages:
   health: !include ../packages/health.yaml
   quiet_hours: !include ../packages/quiet_hours.yaml
   ha_boost: !include ../packages/ha_boost.yaml
+  base: !include base.yaml
 
 # Stand-ins for the sensors
 sensor:
