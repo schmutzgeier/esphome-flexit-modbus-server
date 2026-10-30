@@ -15,7 +15,6 @@
 #include "plink.h"
 #include "plink_icons.h"
 #include "settings.h"
-#include "snapshot.h"
 #include "util.h"
 
 namespace flexit::panel {
@@ -293,7 +292,6 @@ inline void loop() {
   }
   picture::refresh();
   picture::loop(deadline_us);
-  snapshot::loop(deadline_us);
   anim::loop(deadline_us);
 }
 
