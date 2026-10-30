@@ -104,6 +104,7 @@ bool Reader::hour(std::string_view e) {
     num("cloud_area_fraction_high", w.cloud_high);
     num("fog_area_fraction", w.fog);
     num("wind_speed", w.wind);
+    num("wind_speed_of_gust", w.gust);
     num("wind_from_direction", w.wind_from);
     size_t next = n1 != std::string_view::npos ? n1 : at("next_6_hours");
     if (next != std::string_view::npos) {

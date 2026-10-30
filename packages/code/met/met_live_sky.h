@@ -31,7 +31,7 @@ inline constexpr int AUR_HIGH_W = 52, AUR_LOW_W = 72;
 struct Sky {
   int tiles, tw, h;                        // the rain and snow tiles: how many, their width and height
   float dens;                              // streaks or flakes per px
-  int kind, slant;                         // 0 rain, 1 snow, 2 both, and the rain's x per 8 rows
+  int kind, slant;                         // 0 rain, 1 snow, 2 both, and their x per 8 rows
   decltype(Scene::bolt_x) bolt_x, bolt_y;  // the scene's bolt
   int16_t shoot[6][3];                     // where a shooting star may start, and which way, x 0 for none
 };
@@ -48,6 +48,12 @@ inline void field_drift(const std::string &name, int x, int y, int w, float vx) 
 }
 
 // ---- rain and snow
+
+// x per 8 rows the rain or snow falls: the scene's lean for the rain and sleet, and snow, which falls slower, blown a
+// px more for each m/s, near level in a gale. In steps of 3, so a little more wind doesn't make it again.
+inline int prec_slant(const Scene &s) {
+  return s.at.snow && !s.at.rain ? s.at.wdir * std::min(24, 3 * (int) lroundf(s.at.wind / 3)) : s.slant;
+}
 
 // The scene's streaks or flakes per px of its fall, heavier in thunder
 inline float prec_dens(const Scene &s) {
@@ -84,7 +90,7 @@ inline Frames prec_tile(const Scene &s, int room) {
   uint32_t rain = s.rgb[C_RAIN], far = mix(rain, s.rgb[C_SKY + 3], 0.3f), snow = s.rgb[C_SNOW];
   float r = k == 2 ? 0.5f : 1;  // sleet is half of each
   Frames drops = rain_tile(w, h, slant, {{7, 7, rain, d * r * 0.7f}, {5, 5, far, d * r * 0.3f}}, 5);
-  Frames flakes = snow_tile(w, h, {{1, 1.5f, snow, d * r * 0.75f}, {2, 2.5f, snow, d * r * 0.25f}}, 9);
+  Frames flakes = snow_tile(w, h, slant, {{1, 1.5f, snow, d * r * 0.75f}, {2, 2.5f, snow, d * r * 0.25f}}, 9);
   if (k < 2)
     return k ? flakes : drops;
   return {w, h, flakes.delays, [drops, flakes](int f, const Canvas &c) {
@@ -114,7 +120,7 @@ inline void prec_start(const Scene &s, int tw, int room) {
   SKY.h = tiles_h(s);
   SKY.dens = prec_dens(s);
   SKY.kind = s.at.snow ? (s.at.rain ? 2 : 1) : 0;
-  SKY.slant = SKY.kind == 1 ? 0 : s.slant;
+  SKY.slant = prec_slant(s);
   if (!s.nprec)
     return;
   add("prec", prec_tile(s, room));
@@ -144,25 +150,34 @@ inline uint32_t flash() {
   return (uint32_t) ms_of("bolt");
 }
 
+// The pool's bytes for the tiles: less the bolt's in thunder, and in a gale RARE_BYTES for something blowing by
+inline int prec_room(const Scene &s) {
+  return s.at.thunder ? SKY_POOL - bolt_bytes(s) : gale(s.at) ? SKY_POOL - RARE_BYTES : SKY_POOL;
+}
+// What the rain and snow are made of: whether it blows a gale, so they start again with room for it or without
+inline uint32_t in_gale(const Scene &s) { return gale(s.at); }
+
 inline void thunderstorm(const Scene &s) {
   keep_bolt(s);
-  prec_start(s, 46, SKY_POOL - bolt_bytes(s));  // a copy for the bolt
+  prec_start(s, 46, prec_room(s));  // a copy for the bolt
   sometimes(minutes(3), 40000, flash);
 }
 
-inline void snowfall(const Scene &s) { prec_start(s, 40, SKY_POOL); }
-inline void light_rain(const Scene &s) { prec_start(s, 40, SKY_POOL); }
+// In a gale a copy fewer, for what blows by
+inline void snowfall(const Scene &s) { prec_start(s, gale(s.at) ? 46 : 40, prec_room(s)); }
+inline void light_rain(const Scene &s) { prec_start(s, gale(s.at) ? 46 : 40, prec_room(s)); }
 
-// The clouds moved: the tiles go to their new bases, or are made again if they're too short now or the rain changed.
+// The clouds moved: the tiles go to their new bases, or are made again if they're too short now or the rain or wind
+// changed.
 // The bolt flashes where the scene has it now.
 inline void prec_redo(const Scene &s) {
   if (s.at.thunder)
     keep_bolt(s);
-  int room = s.at.thunder ? SKY_POOL - bolt_bytes(s) : SKY_POOL;
+  int room = prec_room(s);
   float d = prec_dens(s);
   int kind = s.at.snow ? (s.at.rain ? 2 : 1) : 0;
-  if (tiles_h(s) <= SKY.h && kind == SKY.kind && (kind == 1 || s.slant == SKY.slant) &&
-      fabsf(d - SKY.dens) <= SKY.dens / 5 && s.nprec) {
+  if (tiles_h(s) <= SKY.h && kind == SKY.kind && prec_slant(s) == SKY.slant && fabsf(d - SKY.dens) <= SKY.dens / 5 &&
+      s.nprec) {
     prec_place(s, true);
     return;
   }

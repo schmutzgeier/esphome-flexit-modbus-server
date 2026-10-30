@@ -2,6 +2,7 @@
 // Day
 #pragma once
 #include "met_live.h"
+#include "met_live_rare.h"
 
 namespace flexit::panel::met::live {
 
@@ -174,10 +175,17 @@ inline void sankthans(const Scene &s) {
 
 // ---- Halloween
 
-// The pumpkin's candle flickers, and now and then an owl glides in, perches on a spruce top, turns its head and
-// hoots, and flies off
+// The pumpkin's candle flickers, a witch on her broomstick flies across the moon now and then, or across the sky
+// without it, and an owl glides in, perches on a spruce top, turns its head and hoots, and flies off
 inline void halloween(const Scene &s) {
   place("pumpkin", 0, s.pumpkin.x - 5, s.pumpkin.y - 3);
+  sometimes(minutes(10), minutes(4, 30), [] {  // where the moon is by then
+    Ride r = witch_ride(SEEN.moon_x, SEEN.moon_y, SEEN.top);
+    place("witch", 0, r.x[0], r.y[0]);
+    if (r.x[3] < r.x[0])
+      flip("witch", 0, true, false);
+    return remove_later(ride("witch", r), "witch", 0);
+  });
   std::vector<int16_t> tops;  // the near spruces' x and top
   for (int i : near_trees(s, 0))
     tops.insert(tops.end(), {s.tree[i].x, s.tree[i].top});

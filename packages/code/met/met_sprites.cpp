@@ -214,40 +214,42 @@ struct Falls {
   }
 };
 
+// x round the tile's sides
+static int round_w(int x, int w) { return (x % w + w) % w; }
+
 Frames rain_tile(int w, int h, int slant, std::initializer_list<Fall> kinds, uint32_t seed) {
   Falls k(kinds);
   return {w, h, std::vector<uint16_t>(8, 95), [=](int f, const Canvas &c) {
             Rng r = seeded(seed);
             for (const Fall *fall = k.k; fall < k.k + k.n; fall++) {
-              int step = (int) fall->step, period = 8 * step, span = w + abs(slant) * h / 8 + 4,
-                  count = iround(fall->dens * span * period);
+              int step = (int) fall->step, period = 8 * step, count = iround(fall->dens * w * period);
               for (int i = 0; i < count; i++) {
-                int u = r.in(-2, span - 3), v = r.in(0, period - 1);
+                int u = r.in(0, w - 1), v = r.in(0, period - 1);
                 for (int z = -1; z * period < h + fall->size + period; z++) {
                   int y0 = v + f * step + (z - 1) * period, x0 = u + slant * y0 / 8;
                   for (int d = 0; d < fall->size; d++)
-                    c.put(x0 + slant * d / 8, y0 + d, fall->col);
+                    c.put(round_w(x0 + slant * d / 8, w), y0 + d, fall->col);
                 }
               }
             }
           }};
 }
-Frames snow_tile(int w, int h, std::initializer_list<Fall> kinds, uint32_t seed) {
+Frames snow_tile(int w, int h, int slant, std::initializer_list<Fall> kinds, uint32_t seed) {
   Falls k(kinds);
   return {w, h, std::vector<uint16_t>(32, 110), [=](int f, const Canvas &c) {
             Rng r = seeded(seed);
             for (const Fall *fall = k.k; fall < k.k + k.n; fall++) {
               float period = 32 * fall->step;
-              int count = iround(fall->dens * (w + 4) * period);
+              int count = iround(fall->dens * w * period);
               for (int i = 0; i < count; i++) {
-                float u = r.f() * (w + 4) - 2, v = r.f() * period, ph = r.f() * 2 * kPiF, lam = 26 + r.f() * 20,
+                float u = r.f() * w, v = r.f() * period, ph = r.f() * 2 * kPiF, lam = 26 + r.f() * 20,
                       amp = fall->size > 1 ? 2 : 1.4f;
                 for (int z = -1; z * period < h + period; z++) {
-                  int y = (int) floorf(v + f * fall->step + (z - 1) * period),
-                      x = iround(u + amp * sinf(ph + 2 * kPiF * y / lam));
+                  float y = floorf(v + f * fall->step + (z - 1) * period);
+                  int x = iround(u + (float) slant * y / 8 + amp * sinf(ph + 2 * kPiF * y / lam));
                   for (int a = 0; a < fall->size; a++)
                     for (int b = 0; b < fall->size; b++)
-                      c.put(x + a, y + b, fall->col);
+                      c.put(round_w(x + a, w), (int) y + b, fall->col);
                 }
               }
             }
@@ -461,6 +463,19 @@ static constexpr uint16_t PUMPKIN_MS[] = {160, 120, 220, 140, 180, 130};
 static constexpr uint16_t BEACON_MS[] = {1000, 1600};
 static constexpr uint16_t WINLIT_MS[] = {5200, 300, 3900, 260};
 static constexpr uint16_t WINDARK_MS[] = {6100, 140, 110, 180, 4300, 120};
+static constexpr uint16_t TRAMPOLINE_MS[] = {130, 130, 130, 130, 130, 130};
+static constexpr uint16_t UMBRELLA_MS[] = {150, 150, 150};
+static constexpr uint16_t SHIRT_MS[] = {160, 160, 160, 160};
+static constexpr uint16_t COW_MS[] = {220, 220};
+// the lights go round while it comes and looks, then the beam, then round again until it's off
+static constexpr uint16_t UFO_MS[] = {350, 350, 350, 350, 350, 350, 350, 350, 350, 350,
+                                      250, 800, 800, 800, 250, 350, 350, 350, 350};
+static constexpr uint16_t SERPENT_MS[] = {280, 280, 280, 280};
+static constexpr uint16_t TROLL_MS[] = {380, 380};
+static constexpr uint16_t LONGSHIP_MS[] = {320, 320, 320, 320};
+// it sits, lifts its head and howls, twice, and is still at the end
+static constexpr uint16_t WOLF_MS[] = {1600, 300, 2400, 300, 1400, 300, 2800, 300, 900};
+static constexpr uint16_t WITCH_MS[] = {200, 200};
 
 // Frame f's digit in seq, which has a digit for each frame in MS
 template<const auto &MS, size_t N> constexpr int pose(const char (&seq)[N], int f) {
@@ -1020,6 +1035,189 @@ static constexpr Fixed FIXED[] = {
          for (int x = 0; x < 11; x++)
            if (FACE.row[y] >> (10 - x) & 1)
              c.put(x, y, COL[std::min(4, pose<PUMPKIN_MS>("213021", f) + (y > 3))]);
+     }},
+    // ---- the rare ones, see met_live_rare.h
+    // A garden trampoline tumbling end over end, a sixth of a turn a frame: its black mat in the blue padding, and
+    // the legs bent out under it
+    {"trampoline", 26, 26, TRAMPOLINE_MS,
+     [](int f, const Canvas &c) {
+       float a = 0.5f + (float) f * 6.2832f / 6, ca = cosf(a), sa = sinf(a);
+       // x across, y up out of the mat and z through it, turned by a about x
+       auto leg = [&](float x0, float y0, float z0, float x1, float y1, float z1) {
+         line(c, iround(12.5f + x0), iround(12.5f - y0 * ca + z0 * sa), iround(12.5f + x1),
+              iround(12.5f - y1 * ca + z1 * sa), 0xB0BCC8);
+       };
+       auto legs = [&] {
+         for (float l : {1.57f, 3.67f, 5.76f}) {
+           float x = cosf(l), z = sinf(l);
+           leg(9.5f * x, 0, 9.5f * z, 12 * x, -4, 12 * z);  // out to the knee, then in to the foot
+           leg(12 * x, -4, 12 * z, 10.5f * x, -8, 10.5f * z);
+         }
+       };
+       if (sa > 0)
+         legs();  // behind the mat, you see its top
+       for (int v = 0; v < 26; v++)
+         for (int u = 0; u < 26; u++) {
+           float x = (float) u - 12.5f, z = ((float) v - 12.5f) / sa, r = sqrtf(x * x + z * z);
+           if (r <= 8.5f)
+             c.put(u, v, sa > 0 ? 0x22222A : 0x44444E);
+           else if (r <= 10.5f)
+             c.put(u, v, r <= 9.5f && sa > 0 ? 0x3388EE : 0x2266CC);
+         }
+       if (sa <= 0)
+         legs();
+     }},
+    // An umbrella blown inside out, red, its ribs sticking up out of it, on its shaft and crook
+    {"umbrella", 13, 13, UMBRELLA_MS,
+     [](int f, const Canvas &c) {
+       static const char *const TOP[] = {"k.....k.....k|rk...rkr...kr|.rrr.rrr.rrr.",
+                                         ".k....k....k.|krr..rkr..rrk|.rrrrrrrrrrr.",
+                                         "k.....k......|.rk..rkr...k.|.rrrrrrrr.rr."};
+       static const char *const KEYS = "rkdh";
+       std::initializer_list<uint32_t> cols = {0xDD2E2E, 0x333333, 0x777777, 0x8A5A2A};
+       rows(c, TOP[f], KEYS, cols);
+       rows(c, "..rrrrrrrrr..|...rrrrrrr...|....rrrrr....|.....rdr.....|......d|......d|......d|......d|......d..h|.......hh",
+            KEYS, cols, 0, 3);
+     }},
+    // Someone's striped T-shirt off the line, its sleeves flapping up and down and its hem rippling
+    {"shirt", 12, 12, SHIRT_MS,
+     [](int f, const Canvas &c) {
+       auto col = [](int y) { return y % 2 ? 0x2A3F7A : 0xF0F0F0; };
+       for (int y = 3; y < 12; y++)
+         for (int x = 3; x <= 8; x++)
+           if (!(y == 3 && (x == 5 || x == 6)) && !(y == 11 && (x + f) % 3 == 0))
+             c.put(x, y, col(y));
+       static const int8_t TIP[] = {-2, 0, 2, 0};  // the sleeves' tips, rows up or down
+       int tip = TIP[f];
+       for (int k = 0; k < 3; k++)
+         for (int w = 0; w < 2; w++) {
+           int y = 3 + w + tip * (k + 1) / 3;
+           c.put(2 - k, y, col(y));
+           c.put(9 + k, y, col(y));
+         }
+     }},
+    // A Norwegian Red, red and white, on its side as it tumbles, its legs kicking
+    {"cow", 19, 12, COW_MS,
+     [](int f, const Canvas &c) {
+       static const char *const LEGS[] = {"...r.r.....r.r|...r.r.....r.r|...k.k.....k.k",
+                                          "..r...r...r...r|.r.....r.r.....r|k.......k.......k"};
+       static const char *const KEYS = "rwkpe";
+       std::initializer_list<uint32_t> cols = {0xB03A26, 0xF4F1EA, 0x2B1D16, 0xEDA0A0, 0xEEE6CC};
+       rows(c,
+            "...............e.e|..............rrrr|.k.rrrrrrrrrrr.rrwrr|k.rrrrwwwwrrrrrrwkrr|k.rrrwwwwwrrrrr.rppp|"
+            "k.rrrrwwwrrrrrr...pp|k.rrrrrrrrwwwwr|kk.rrrrrrrwwww",
+            KEYS, cols);
+       rows(c, "..........pp", KEYS, cols, 0, 8);
+       rows(c, LEGS[f], KEYS, cols, 0, 9);
+     }},
+    // A flying saucer from below, its lights going round, and a beam it shines down while it looks
+    {"ufo", 21, 44, UFO_MS,
+     [](int f, const Canvas &c) {
+       rows(c, ".......ggggggg|......gGGGGGGGg|....mmmmmmmmmmmmm|..mmMMMMMMMMMMMMMmm|mmmmmmmmmmmmmmmmmmmmm", "gGmM",
+            {0x9FD8E8, 0xCFF0F8, 0xB8C2CC, 0xDDE3EA});
+       rows(c, "..ddddddddddddddddd|....ddddddddddddd|......ddddddddd", "d", {0x5A6470}, 0, 5);
+       static const uint32_t LIGHT[] = {0xFF4444, 0xFFDD33, 0x44FF77};
+       for (int j = 0; j < 5; j++)
+         c.put(4 + 3 * j, 5, LIGHT[(j + f) % 3]);
+       bool full = f >= 11 && f <= 13;
+       if (f < 10 || f > 14)
+         return;
+       for (int y = 8; y < 44; y++) {
+         int half = 2 + (y - 8) * 6 / 35;
+         for (int x = 10 - half; x <= 10 + half; x++)
+           if (full ? (x + y + f) % 2 == 0 : (x + 2 * y) % 4 == 0)
+             c.put(x, y, full ? 0xD8FFB0 : 0xA8D888);
+       }
+     }},
+    // A sea serpent facing right: three humps rolling up out of the water and down again behind its head on its
+    // long neck, a ripple where each meets the water, row 8
+    {"serpent", 32, 9, SERPENT_MS,
+     [](int f, const Canvas &c) {
+       for (int k = 0; k < 3; k++) {
+         int cx = 4 + 8 * k, h = 2 + (f + 3 - k) % 4;  // 2 to 5 rows out of the water, rolling forward
+         for (int x = -3; x <= 3; x++) {
+           int top = 8 - iround((float) h * sqrtf(1 - (float) (x * x) / 16));
+           for (int y = top; y < 8; y++)
+             c.put(cx + x, y, y == top ? 0x5E8C6A : 0x2F4F3C);
+         }
+         dots(c, {(int8_t) (cx - 4), 8, (int8_t) (cx + 4), 8}, 0xCFE3EA);
+       }
+       rows(c, "....hhhh|...hhhhhe|..hh.hhhh|..hh|..hh|..hh|..hh|.hhh|wwwww", "hew", {0x2F4F3C, 0xE8D040, 0xCFE3EA},
+            24, 0);
+     }},
+    // A troll facing right with a spruce growing out of its head and a long nose, walking: a stride and a step
+    {"troll", 16, 24, TROLL_MS,
+     [](int f, const Canvas &c) {
+       static const char *const KEYS = "hsdnemgbt";
+       std::initializer_list<uint32_t> cols = {0x2A2218, 0x7C8462, 0x5A6248, 0x949C74, LAMP,
+                                               0x2A2218, 0x2F5A36, 0x5E4E34, 0x6A4A2A};
+       int d = f ? 0 : 1;  // down a row on the stride
+       rows(c, "......g|.....ggg|......g|.....ggg|....ggggg|......t", KEYS, cols, 0, d);
+       rows(c,
+            "...hhhhhhhh|..hhhhhhhhhh|..hhhhhsshhh|.hhsssessess|.hhsssssssnnn|.hhsssssssnnnnn|..hsssmmssnnnnn|"
+            "...ssssssss.nnn|..bbbbbbbbbb.n|.bbbbbbbbbbbb",
+            KEYS, cols, 0, 6 + d);
+       static const char *const ARM[] = {"bbbbbbbbbbbbbs|hbbbbbbbbbbb.ss|hhbbbbbbbbbb..ss|.hbbbbbbbbbb...s",
+                                         "bbbbbbbbbbbbs|hbbbbbbbbbbbs|hhbbbbbbbbbbs|.hbbbbbbbbbbss"};
+       rows(c, ARM[f], KEYS, cols, 0, 16 + d);
+       rows(c, "..bbbbbbbbbb", KEYS, cols, 0, 20 + d);
+       rows(c, f ? "....dd..dd|....dd..dd|...ddd.ddd" : "..dd......dd|.ddd......ddd", KEYS, cols, 0, f ? 21 : 22);
+     }},
+    // A Viking longship facing right: a dragon's head on its prow, a red and white sail, shields along its side and
+    // five oars pulling, the water at row 16
+    {"longship", 32, 18, LONGSHIP_MS,
+     [](int f, const Canvas &c) {
+       const uint32_t wood = 0x6B4423, dark = 0x4A2E16, mast = 0x5A3A1E, foam = 0xCFE3EA;
+       for (int x = 8; x <= 22; x++)  // the sail, bellied a little to the right
+         for (int y = 2; y <= 9; y++)
+           if (!((x == 8 || x == 22) && y == 9))
+             c.put(x + (y > 3 && y < 8), y, (x - 8) / 2 % 2 ? 0xEDE6D6 : 0xB8302A);
+       line(c, 7, 1, 23, 1, mast);
+       line(c, 15, 0, 15, 11, mast);
+       for (int x = 3; x <= 28; x++) {  // the hull, rising to the stem and stern
+         int keel = 14 - (x < 7 ? 7 - x : 0) / 2 - (x > 24 ? x - 24 : 0) / 2;
+         for (int y = 11; y <= keel; y++)
+           c.put(x, y, y == 12 ? dark : wood);
+       }
+       rows(c, ".www|ww.w|w..w|w|w|ww|.ww", "w", {wood}, 0, 5);  // the stern's curl
+       rows(c, "..kkk|.kkekk|..kk.t|..kk|..kw|.kw|kw|w|.w", "kewt", {wood, 0xF2D24A, wood, 0xC0402A}, 26, 2);
+       for (int k = 0; k < 6; k++)  // the shields
+         dots(c, {(int8_t) (6 + 4 * k), 10, (int8_t) (7 + 4 * k), 10, (int8_t) (6 + 4 * k), 11, (int8_t) (7 + 4 * k), 11},
+              k % 2 ? 0xB02A2A : 0xD8B040);
+       static const int8_t LEAN[] = {-3, -1, 2, 0};
+       for (int k = 0; k < 5; k++) {  // out of the water as they come forward
+         int x = 7 + 4 * k;
+         line(c, x, 13, x + LEAN[f], f == 1 ? 15 : 16, 0x8A6A40);
+         if (f == 2)
+           c.put(x + LEAN[f] + 1, 16, foam);
+       }
+       for (int x = 4; x <= 28; x += 3)
+         c.put(x + f % 2, 16, foam);
+     }},
+    // A wolf sitting on the skyline facing right, its back lit by the moon: still, its head lifting, howling
+    {"wolf", 16, 14, WOLF_MS,
+     [](int f, const Canvas &c) {
+       static const char *const HEAD[] = {"..........r|.........rkk|.........kkkkkk|.........kkkk",
+                                          "..........r...k|.........rkkkkk|.........kkkkk|.........kkkk",
+                                          "............kk|...........kkk|..........rkkk|.........rkkkk"};
+       static const char *const KEYS = "kr";
+       std::initializer_list<uint32_t> cols = {0x15171F, 0x8E9AB8};
+       rows(c, HEAD[pose<WOLF_MS>("012101210", f)], KEYS, cols);
+       rows(c,
+            ".........kkkk|........rkkkkk|........kkkkkk|.......kkkkkk|.....rrkkkkkk|...rrkkkkkkkk|..rkkkkkkk.kk|"
+            "..kkkkkkkk.kk|r.kkkkkkkk.kk|kkkkkkkkkk.kkk",
+            KEYS, cols, 0, 4);
+     }},
+    // A witch on her broomstick flying right, her cape flying out behind
+    {"witch", 20, 12, WITCH_MS,
+     [](int f, const Canvas &c) {
+       static const char *const KEYS = "kfrcoyhbdt";
+       std::initializer_list<uint32_t> cols = {0x16141C, 0x7EB45C, 0xE0702A, 0x6A44A0, 0x7A5430,
+                                               0xD8AA50, 0x2C2440, 0x9A6AD0, 0x3A2856, 0xA05A20};
+       rows(c, ".......h|........hh|........hhh|.......hbbbh|.....hhhhhhhhh", KEYS, cols);  // its tip blown back
+       rows(c, ".......rfff|......rrffff|.......ccc|......cccc", KEYS, cols, 0, 5);
+       rows(c, f ? "..cc|.cccc|cd" : "|cccc|.cdd", KEYS, cols, 3, 6);
+       rows(c, "yy|yyytooooooooooooo|yyy...dd|y.y....kk", KEYS, cols, 0, 8);
      }},
     // ---- the city
     // the red light on the antenna, slowly on and off

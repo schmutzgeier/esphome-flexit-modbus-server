@@ -260,7 +260,7 @@ struct At {
   int8_t wdir;                                // which way the wind blows things, 1 to the right
   uint8_t season, hour, month, day, weekday;  // weekday 0 Sunday, season see season_of()
   float light;                                // 0 night .. 1 day
-  float fog, cover, wind, sun_el;
+  float fog, cover, wind, gust, sun_el;       // gust 0 if MET didn't say
 };
 
 // Everything build() works out, so row() can draw any row on its own

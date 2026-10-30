@@ -417,6 +417,7 @@ Now::Now(const Weather &weather, const Options &options, double la, double lo, u
   glow = (1 - fabsf(sun.el - 1) / 11) * (1 - grey);
   dark = sun.el < -6;
   wind = w.wind;
+  gust = w.gust;
   fair = sun.el > 3 && cover < 60 && !rain && !snow && !thunder && fog < 30 && wind < 12;
   fireplace = o.fireplace;
   // The picture faces south, east on the left. A wind from the east half blows things to the right.

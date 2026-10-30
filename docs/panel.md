@@ -357,11 +357,16 @@ just hasn't changed.
 `Panel Animation Weather`, on unless you turn it off, adds slow animations that fit the picture, one show at a
 time: gulls over the cabin, rain and snow falling from under the clouds, the aurora glowing, a moose at dusk, the
 sailboat, the town's windows, the lights on the Christmas spruce, fireworks on New Year's Eve, the flag waving on
+<<<<<<< ours
 flag days and more, some of them by chance now and then. On the heath, whenever someone's outside, its own show
 comes before the weather's: the climber climbs to the ridge, the runner and the skiers go along it and the shore,
 the kayak paddles about the bay, the dog roams the hill by the cabin, and now and then a reindeer walks out of the
 trees or a walrus swims across the bay; the sheep stay where they are. The picture leaves out what they draw. They take the
 panel's animations, so turn your other ones off with it.
+=======
+flag days and more, some of them by chance now and then. Very seldom something stranger comes by. The picture
+leaves out what they draw. They take the panel's animations, so turn your other ones off with it.
+>>>>>>> theirs
 
 ### Picture and animation actions
 

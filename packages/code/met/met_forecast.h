@@ -37,8 +37,12 @@ struct Weather {
   uint32_t time = 0;  // forecast hour, UTC seconds since 1970
   float temp = 10, cloud = 0, cloud_low = 0, cloud_mid = 0, cloud_high = 0, fog = 0;  // %
   float rain = 0;                                                                     // mm in the coming hour
+<<<<<<< ours
   float wind = 0, wind_from = 0, thunder = 0;                                         // m/s, degrees, %
   float wave = -1;           // significant wave height in m, from Oceanforecast (see Sea). -1 = none
+=======
+  float wind = 0, gust = 0, wind_from = 0, thunder = 0;                               // m/s, m/s, degrees, %
+>>>>>>> theirs
   char symbol[SYMBOL] = "";  // MET symbol for the coming hour, like "lightrainshowers_day"
   Hour hour[HOURS] = {};     // this hour onwards, as far as the response went
   int hours = 0;

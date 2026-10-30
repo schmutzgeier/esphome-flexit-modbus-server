@@ -1,10 +1,11 @@
 // The weather animations' shows in the order they're tried, the first that fits the picture runs. The shows
-// themselves are in met_live_*.h.
+// themselves are in met_live_*.h, with met_live_rare.h's encounters now and then over any of them.
 #pragma once
 #include "met_live.h"
 #include "met_live_days.h"
 #include "met_live_heath.h"
 #include "met_live_land.h"
+#include "met_live_rare.h"
 #include "met_live_sky.h"
 #include "met_live_town.h"
 
@@ -55,9 +56,9 @@ inline const Show SHOWS[] = {
     // the weather
     {"Thunderstorm", L_PREC | L_BOLT, thunderstorm, prec_redo, nullptr,
      [](const Scene &s) { return s.at.thunder; }},
-    {"Gentle snowfall", L_PREC, snowfall, prec_redo, nullptr,
+    {"Gentle snowfall", L_PREC, snowfall, prec_redo, in_gale,
      [](const Scene &s) { return s.at.snow; }},
-    {"Light rain", L_PREC, light_rain, prec_redo, nullptr,
+    {"Light rain", L_PREC, light_rain, prec_redo, in_gale,
      [](const Scene &s) { return s.at.rain; }},
     {"Fog in the valley", L_FLAG, valley_fog, nullptr, nullptr,
      [](const Scene &s) { return s.at.fog > 30 && !s.at.dark; }},
@@ -151,15 +152,19 @@ inline void apply(const Scene &s) {
     R.rng = seeded((uint32_t) millis());
     ESP_LOGI("met", "Weather animation: %s", SHOWS[i].name);
     SHOWS[i].start(s);
+    rare_start();
   } else if (i >= 0 && SHOWS[i].redo) {
     SHOWS[i].redo(s);
   }
+  if (i >= 0)
+    rare_seen(s);
   bool flag = flag_fits(s, i), relit = flag && R.flag_light != flag_light(s);
   if (relit)
     unload("flag");  // made again in the new light
-  if (flag && (!R.flag || R.flown != s.at.wdir || relit))
+  if (flag && (!R.flag || R.flown != s.at.wdir || relit)) {
+    rare_off();  // the flag may need its slot
     flag_up(s);
-  else if (!flag && R.flag)
+  } else if (!flag && R.flag)
     clear("flag");
   R.flag = flag;
 }

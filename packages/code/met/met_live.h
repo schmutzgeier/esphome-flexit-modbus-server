@@ -25,6 +25,7 @@ struct Timer {
   uint32_t at;                   // millis()
   std::function<uint32_t()> fn;  // the ms it takes, for sometimes()
   uint32_t mean;                 // sometimes()'s, 0 for once
+  bool rare = false;             // the roll for a rare encounter, see met_live_rare.h
 };
 
 // The show that runs and what it made
@@ -43,6 +44,7 @@ struct Running {
   const Frames *drawn;
   int drawn_f;
   int8_t flag_light;  // the light the flag was dimmed to, in tenths
+  std::string rare;   // the sprite of the rare encounter on, see met_live_rare.h
 };
 inline Running R;
 
@@ -132,12 +134,12 @@ inline void unload(const std::string &name) {
   R.drawn = nullptr;
 }
 
-// sp in the light there is, 1 day to 0 night, the way the picture's colours go
+// sp in the light there is, 1 day to 0 night, the way the picture's colours go, but for LAMP
 inline Frames dimmed(Frames sp, float light) {
   sp.draw = [draw = sp.draw, light](int f, const Canvas &c) {
     draw(f, c);
     for (int i = 0; i < c.w * c.h; i++)
-      if (c.px[i])
+      if (c.px[i] && (c.px[i] & 0xFFFFFF) != LAMP)
         c.px[i] = 0xFF000000u | met::mix(0x223344, c.px[i] & 0xFFFFFF, light);
   };
   return sp;
@@ -203,6 +205,8 @@ inline void map(const std::string &n, int i, const char *what, int l, int r, int
   anim::map(key(n), i, what, l, r, t, b);
 }
 inline void rounds(const std::string &n, int i, int k) { anim::rounds(key(n), i, k); }
+// degrees a second clockwise, negative the other way
+inline void spin(const std::string &n, int i, float speed) { anim::spin(key(n), i, speed); }
 
 // fn by chance, first after first ms, then about every mean ms after the last one ended, or just once with mean
 // 0. It returns the ms it takes.
@@ -234,11 +238,103 @@ inline uint32_t across(const char *n, int x0, int y0, int x1, int y1, uint32_t m
   return remove_later(ms, n, 0);
 }
 
+// The top row of what stands in front of the sky in each column: the land, the mountains' far ridge with far, the
+// sea's horizon, the trees, the cabin, the flagpole and its flag, the lighthouse, and the town's buildings with
+// what's on their roofs
+inline void skyline(const Scene &s, uint8_t top[W], bool far = true) {
+  for (int x = 0; x < W; x++) {
+    int y = std::min({s.land->hill[0][x], s.land->hill[1][x], s.land->hill[2][x]});
+    if (s.ridge && far)
+      y = std::min<int>(y, s.land->ridge[x]);
+    if (s.sea)
+      y = std::min<int>(y, s.sea_top);
+    top[x] = (uint8_t) y;
+  }
+  auto up = [&](int l, int r, int y) {  // up to row y over columns l to r
+    for (int x = std::max(0, l); x <= std::min(W - 1, r); x++)
+      top[x] = (uint8_t) std::clamp<int>(y, 0, top[x]);
+  };
+  for (int i = 0; i < s.ntrees; i++) {
+    const Tree &t = s.tree[i];
+    int half = (t.base - t.top) / 2 + 2;
+    up(t.x - half, t.x + half, t.top);
+  }
+  if (s.cabin)
+    up(s.cabin_x - 17, s.cabin_x + 17, s.cabin_y - 32);
+  if (s.pole_x >= 0)
+    up(s.pole_x - PENNANT_MAX - 1, s.pole_x + PENNANT_MAX + 3, s.pole_top);
+  if (s.lighthouse)
+    up(LH_X - 6, LH_X + 6, s.lh_y - 34);
+  static constexpr int8_t ROOF[] = {0, 5, 12, 14};  // a flat roof, a box on it, an antenna, a spire
+  for (int i = 0; i < s.nbld; i++)
+    up(s.bld[i].x, s.bld[i].x + s.bld[i].w - 1, s.bld[i].top - ROOF[s.bld[i].kind & 3]);
+}
+
+// The moon's whole disc in the sky: under the forecast, away from the sides it would wrap round, and above
+// skyline() and the fog
+inline bool moon_clear(const Scene &s) {
+  int l = s.moon_x - MOON_R, r = s.moon_x + MOON_R, below = s.moon_y + MOON_R;
+  if (!s.moon || l < 0 || r >= W || s.moon_y - MOON_R < (s.overlay ? OV_H : 0))
+    return false;
+  uint8_t top[W];
+  skyline(s, top);
+  for (int x = l; x <= r; x++)
+    if (std::min({top[x], s.fog_top[0][x], s.fog_top[1][x]}) <= below)
+      return false;
+  return true;
+}
+
+// A witch on her broomstick from off one side across to the other at 40 px/s, through the moon at moon_x, moon_y,
+// slowing to 15 px/s over the 60 px across it, or anywhere in the sky with moon_x -1. No higher than row top.
+struct Ride {
+  int x[4], y[4];  // off one side, the moon's near and far side, off the other side
+  int ms[3];       // each leg's
+};
+inline Ride witch_ride(int moon_x, int moon_y, int top) {
+  bool right = chance(0.5f), moon = moon_x >= 0 && moon_y - 6 >= top;
+  int mx = moon ? moon_x - 10 : (int) rnd(60, W - 80), my = moon ? moon_y - 6 : (int) rnd(top + 10, HORIZON - 50);
+  int from = right ? -22 : W + 2, to = right ? W + 2 : -22, slow = moon ? 30 : 0, dir = right ? 1 : -1;
+  // its slope, as much as 0.15 either way while neither end leaves the sky
+  float lo = -0.15f, hi = 0.15f;
+  for (int x : {from, to}) {
+    float d = (float) (x - mx), a = (float) (top - my) / d, b = (float) (HORIZON - 12 - my) / d;
+    lo = std::max(lo, std::min(a, b));
+    hi = std::min(hi, std::max(a, b));
+  }
+  float k = rnd(lo, hi);
+  Ride r;
+  int x[4] = {from, mx - dir * slow, mx + dir * slow, to};
+  for (int i = 0; i < 4; i++) {
+    r.x[i] = right ? std::clamp(x[i], from, to) : std::clamp(x[i], to, from);
+    r.y[i] = my + (int) lroundf(k * (float) (r.x[i] - mx));
+  }
+  for (int i = 0; i < 3; i++)
+    r.ms[i] = abs(r.x[i + 1] - r.x[i]) * 1000 / (i == 1 ? 15 : 40);
+  return r;
+}
+// Copy 0 of n, placed at the ride's start, along its legs. The ms they take.
+inline uint32_t ride(const char *n, const Ride &r) {
+  uint32_t t = 0;
+  for (int i = 0; i < 3; i++) {
+    if (r.ms[i])
+      move_later(t, n, 0, r.x[i + 1], r.y[i + 1], r.ms[i]);
+    t += (uint32_t) r.ms[i];
+  }
+  return t;
+}
+
 // ---- shared by the shows
+
+// A full gale or storm gusts, wind that takes what isn't tied down. The rain and snow leave room then for something
+// blowing by, see met_live_rare.h.
+inline bool gale(const At &a) { return a.wind >= 17 || a.gust >= 25; }
+// The most of the pool a rare encounter's sprite takes. The firmware's sim/esp_yaml/live_rare.inc checks it.
+inline constexpr int RARE_BYTES = 1200;
 
 // The near hill's top every 4 px, for walks along it after the scene's gone
 struct NearHill {
-  uint8_t y[W / 4 + 1];
+  uint8_t y[W / 4 + 1] = {};
+  NearHill() = default;
   explicit NearHill(const Scene &s) {
     for (int i = 0; i <= W / 4; i++)
       y[i] = s.land->hill[2][std::min(W - 1, i * 4)];
@@ -384,6 +480,7 @@ inline void stop() {
   free_px();
   R.show = -1;
   R.flag = false;
+  R.rare.clear();
 }
 
 // Every 50 ms or so: what's due. shown: the weather is the panel's picture.

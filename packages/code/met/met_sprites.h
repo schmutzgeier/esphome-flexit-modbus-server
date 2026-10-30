@@ -21,6 +21,9 @@ struct Canvas {
       px[y * w + x] = 0xFF000000u | rgb;
   }
 };
+// A colour that glows, which dimmed() leaves as it is: a troll's eyes
+inline constexpr uint32_t LAMP = 0xF2E27A;
+
 // A sprite's frames, drawn when they're wanted
 struct Frames {
   int w = 0, h = 0;
@@ -66,11 +69,12 @@ Frames cirrus_cloud(const Ellipse *e, int n, int y0, int h, uint32_t col);
 Frames cumulus_cloud(const Ellipse *e, int n, int top, int base, int shade, uint32_t lit, uint32_t dark);
 
 // A still tile of the scene's rain: streaks size long, leaning slant px every 8 rows, falling step px a frame along
-// that lean. 8 frames, the last leads into the first. One or two kinds.
+// that lean. 8 frames, the last leads into the first. One or two kinds. What goes out at one side comes in at the
+// other, so tiles side by side meet.
 Frames rain_tile(int w, int h, int slant, std::initializer_list<Fall> kinds, uint32_t seed);
-// The scene's snow, single flakes and a few 2 x 2, swaying as they fall. 32 frames, the last leads into the first.
-// One or two kinds.
-Frames snow_tile(int w, int h, std::initializer_list<Fall> kinds, uint32_t seed);
+// The scene's snow, single flakes and a few 2 x 2, swaying as they fall and blown slant px every 8 rows. 32 frames,
+// the last leads into the first. One or two kinds. Side by side they meet, as rain_tile's do.
+Frames snow_tile(int w, int h, int slant, std::initializer_list<Fall> kinds, uint32_t seed);
 // A bank of fog in k top row, main and bottom rows, its top billowing slowly, its ends thinning out
 Frames fog_bank(int w, int h, int seed, std::array<uint32_t, 3> k);
 // Every light glints in its turn, then glows softer, as many as the scene has at most. x0 and y0 get the
