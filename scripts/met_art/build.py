@@ -360,6 +360,25 @@ def main():
     ays = np.where(aur.any(axis=1))[0]
     a0, a1 = int(ays.min()), int(ays.max()) + 1
 
+    # Spots on the cabin, from the artboard's cabin drawing
+    def spot(x, y):
+        return round(x * 0.2), round(y * 0.2 + ART_Y0)
+
+    spots = {
+        "CHIMNEY": spot(1537, 531),
+        "DOOR": spot(1477, 650),
+        "EAVE_L": spot(1390, 525),
+        "EAVE_R": spot(1574, 565),
+        "WINDOW": spot(1434, 596),
+    }
+    # The roof is drawn as the wall, a band over the eave line from EAVE_L to EAVE_R. It stays dark as the frames
+    # when the wall is light.
+    (lx, ly), (rx, ry) = spots["EAVE_L"], spots["EAVE_R"]
+    for y in range(ly, ry + 1):
+        for x in range(lx, W):
+            if slot[y, x] == S["CABIN_WALL"] and (y - ly) * (rx - lx) < (x - lx) * (ry - ly) + (rx - lx) // 2:
+                slot[y, x] = S["BLACK"]
+
     gys = np.where((slot != 0).any(axis=1))[0]
     g0 = int(gys.min())
     ground, goffs = rle_rows(slot, g0, H)
@@ -395,17 +414,6 @@ def main():
             int(depth[y, x]) if slot[y, x] else 0
         )  # the dog's feet stand on the hill below the mountain
 
-    # Spots on the cabin, from the artboard's cabin drawing
-    def spot(x, y):
-        return round(x * 0.2), round(y * 0.2 + ART_Y0)
-
-    spots = {
-        "CHIMNEY": spot(1537, 531),
-        "DOOR": spot(1477, 650),
-        "EAVE_L": spot(1390, 525),
-        "EAVE_R": spot(1574, 565),
-        "WINDOW": spot(1434, 596),
-    }
     # where the cabin ends and the trees beside it begin, halfway down its wall: the deer comes out of them there
     y = (spots["EAVE_R"][1] + spots["DOOR"][1]) // 2
     cabin = [S[k] for k in ("CABIN_WALL", "CABIN_TRIM", "BLACK", "WINDOW")]

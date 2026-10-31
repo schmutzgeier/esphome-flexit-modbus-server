@@ -77,7 +77,7 @@ static Day day_of(const Now &n) {
   Day d;
   int minutes = (int) (n.local % 86400 / 60);
   d.awake = minutes >= 6 * 60;                                                            // asleep from midnight to six
-  d.indoors = (n.rain && n.w.ok && n.w.rain > 4) || !d.awake || minutes >= 23 * 60 + 30;  // home from half past 11
+  d.indoors = (n.rain && n.w.ok && n.w.rain > 4) || !d.awake || minutes >= 22 * 60 + 30;  // home from half past 10
   d.bft = n.w.ok ? beaufort(n.w.wind) : 1;  // without the weather, a little light on the water
   d.wave = n.w.wave >= 0 ? n.w.wave : BFT_WAVE[d.bft];
   d.pride = n.month == 6 && n.day == 28;
@@ -299,6 +299,8 @@ static const uint32_t ROCK_NIGHT[3] = {0x22242A, 0x30333A, 0x40434A};
 // twigs in snow are frosted.
 static const uint32_t BIRCH_DAY[5] = {0x6E5A60, 0x9CC45C, 0x5A8A36, 0xD8A42C, 0xC8862A};
 static const uint32_t BIRCH_NIGHT[5] = {0x262024, 0x22382A, 0x1E3426, 0x3A3418, 0x36301A};
+// The cabin's white walls at night: a light grey, so it still stands out from the hill
+static constexpr uint32_t CABIN_NIGHT = 0x5E656D;
 static constexpr uint32_t BIRCH_FROST_DAY = 0xA8A2AA, BIRCH_FROST_NIGHT = 0x40404C;
 
 // The other slots in daylight, all year. The window, the light it spills, heather and cotton grass are worked
@@ -316,7 +318,7 @@ static uint32_t day_colour(int slot) {
     case art::S_SHEEP_DARK:
       return 0x2C2E30;
     case art::S_CABIN_WALL:
-      return 0x2A323C;
+      return 0xE8ECEE;  // white, its roof dark
     case art::S_CABIN_TRIM:
       return 0x93A8BA;
     case art::S_TREE:
@@ -385,7 +387,7 @@ static void colours(Scene &s, const Now &n, const Day &d) {
     int l = seasonal[k];
     // at night the mountain's misty foot is as dark as the band above it, so it doesn't run into the bay
     int nk = k == S_MTN_C && !n.white ? S_MTN_B : k, nl = l == L_MTN_C && !n.white ? L_MTN_B : l;
-    uint32_t night = l >= 0 && n.white ? SNOW_NIGHT[l] : NIGHT[nk];
+    uint32_t night = l >= 0 && n.white ? SNOW_NIGHT[l] : k == S_CABIN_WALL ? CABIN_NIGHT : NIGHT[nk];
     if (l >= 0 && l <= L_MTN_C && !n.white && !s.aurora)
       night = mix(night, ROCK_NIGHT[nl], 0.5f);
     uint32_t day = l >= 0 ? SEASON_DAY[n.season][l] : day_colour(k);
@@ -537,7 +539,7 @@ static void bay(Scene &s, const Now &n, const Day &d) {
 // The two of them and the dog: climbing the mountain, paddling the bay, and on the hill by the cabin. When it rains
 // the climber runs the ridge instead, with waves over 2 m or wind over 12 m/s the kayaker comes ashore and runs,
 // with snow both are out on skis, and in rain over 4 mm all three are in the cabin, behind its big window. From
-// half past eleven to six they're all home, behind the window until its light goes out at midnight.
+// half past ten to six they're all home, behind the window until its light goes out at midnight.
 static void people(Scene &s, const Now &n, const Day &d) {
   Heath &h = s.heath;
   s.rgb[C_FIG] = mix(0x070B11, 0x1A1E26, n.light);
@@ -873,6 +875,8 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
     }
     float g = 0.4f + 0.6f * dy / (H - BAY_Y);  // nearer, more surf
     int surf = (int) lroundf(h.surf * g), surf_rock = (int) lroundf(h.surf_rock * g);
+    if (surf < 2)  // a single column of foam reads as a white stripe along the shore, not as surf
+      surf = 0;
     auto sea = [](int k) { return k == S_SEA_FAR || k == S_SEA_NEAR; };
     auto rock = [](int k) { return k == S_ROCK_LIGHT || k == S_ROCK_DARK; };
     int r0 = GROUND_ROW[y - GROUND_Y0], r1 = GROUND_ROW[y - GROUND_Y0 + 1];
@@ -1078,9 +1082,11 @@ static HeathSprite figure(const Scene &s, const art::Figure &f, int legs, int sk
           f.x - pad, f.y - top, top + f.h};
 }
 
-// The kayak with its paddle at four angles through the paddler's hands, right blade in, flat, left, flat
+// The kayak with its paddle at four angles through the paddler's hands, right blade in, flat, left, flat. The
+// headlamp's glow round the paddler's head while it's on.
 static HeathSprite kayak(const Scene &s) {
   const art::Figure &f = art::KAYAKER;
+  bool lamp = s.heath.lamp && f.lamp_x >= 0;
   Pose body = pose_of(f, 0, 0);
   for (int y = 0; y < f.h; y++)  // the art's paddle and splash go, the hull, the paddler and the stern stay
     for (int x = 0; x < f.w; x++)
@@ -1098,9 +1104,13 @@ static HeathSprite kayak(const Scene &s) {
     int bx = (int) lroundf(16.5f + 7.5f * d[0]);  // a splash where the blade's in
     if (d[1] > 0.5f)
       p.set(bx, 15, 1);
+    if (lamp)
+      glow(p, f.lamp_x - f.x, f.lamp_y - f.y);
     poses.push_back(p);
   }
-  return {frames_of(poses, {320, 220, 320, 220}, {0, s.rgb[C_FIG], s.rgb[C_FIG], 0}), f.x, f.y, f.h - 1};
+  uint32_t fig = s.rgb[C_FIG];
+  return {frames_of(poses, {320, 220, 320, 220}, {0, fig, lamp ? s.rgb[C_LAMP] : fig, s.rgb[C_LAMP_GLOW]}), f.x, f.y,
+          f.h - 1};
 }
 
 // The Buhund in a gait, its feet on the ground in every frame, its tail curled over its back

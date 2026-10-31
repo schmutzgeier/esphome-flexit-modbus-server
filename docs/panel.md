@@ -337,7 +337,7 @@ letters, digits and `_`.
 mountain. Someone climbs the mountain, someone paddles the bay
 and the dog waits on the hill by the cabin; when it rains the climber runs the ridge instead, with waves over 2 m or
 wind over 12 m/s the kayaker comes ashore and runs, with snow both are out on skis, and in rain over 4 mm in the hour
-all three are in the cabin, behind its big window. From half past eleven everyone's home, behind the lit window
+all three are in the cabin, behind its big window. From half past ten everyone's home, behind the lit window
 until the light goes out at midnight. Some hours, while it's light, a reindeer in the style of the
 rock carvings peeks out of the trees behind the cabin or walks out of them, and a walrus swims in the bay. The
 birch beside the cabin leafs out in May, turns yellow in September and is bare from late October, later and
