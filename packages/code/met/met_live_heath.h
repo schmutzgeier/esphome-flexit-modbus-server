@@ -251,8 +251,6 @@ inline uint32_t walrus_swim(const HeathSprite &sp) {
 }
 
 inline void visitors(const Scene &s) {
-  if (s.at.light <= 0)
-    return;
   bool walrus = s.at.fog <= 45 && s.heath.bft <= 6;
   HeathSprite walk = heath_sprite(s, HK_DEER_WALK), graze = heath_sprite(s, HK_DEER_GRAZE),
               wal = heath_sprite(s, HK_WALRUS);

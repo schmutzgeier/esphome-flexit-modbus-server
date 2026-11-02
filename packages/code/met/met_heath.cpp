@@ -614,13 +614,11 @@ static void flag_pride(Scene &s, int x, int y) {
     box(s, x, y + 3 * k, 22, 3, 2, rgb4(STRIPES[k] >> 16, STRIPES[k] >> 8 & 255, STRIPES[k] & 255));
 }
 
-// Now and then, while it's light: a reindeer from the rock carvings in the ochre they're painted with, peeking out of
+// Now and then, by day or night, in the light there is: a reindeer from the rock carvings in the ochre they're painted with, peeking out of
 // the trees behind the cabin or walking out of them over the hour, and a walrus swimming in the bay. Each hour
 // rolls its own, apart from the rest so nothing else moves. The show on the heath brings its own, see
 // met_live_heath.h.
 static void animals(Scene &s, const Now &n, const Day &d) {
-  if (n.light <= 0)
-    return;
   Rng a{(uint32_t) (n.t / 3600) * 2654435761u + 77};
   int minute = (int) (n.local % 3600 / 60), deer = a.in(0, 99);
   uint32_t ochre = mix(0x4A2618, 0x9E4A2E, n.light);  // the walrus is that reddish brown too, one colour for both
