@@ -108,7 +108,7 @@ static Weather weather_of(const Case &c, uint32_t t) {
 struct Args {
   std::string out, only;
   int seconds = 40, fps = 10;
-  bool anim = true, real_timers = false, check = false;
+  bool anim = true, real_timers = false, check = false, costs = false;
   int check_minutes = 20;
   double lat = 60.39, lon = 5.32;  // Bergen
 };
@@ -192,11 +192,11 @@ static void stats(int *colours, size_t *packed) {
 // The copy of the show's animation n, null if there's none
 static flexit::panel::anim::Copy *copy_of(const char *n, flexit::panel::anim::Anim **an = nullptr) {
   for (auto &p : flexit::panel::anim::anims)
-    if (p->name == std::string("w_") + n)
-      for (auto &c : p->copies)
+    if (p.name == std::string("w_") + n)
+      for (auto &c : p.copies)
         if (c.used && !c.fading) {
           if (an)
-            *an = p.get();
+            *an = &p;
           return &c;
         }
   return nullptr;
@@ -268,6 +268,34 @@ static bool check(const Case &c) {
 
 static bool failed;
 
+// --costs: each show that fits the case's picture, the heath's aside, run on its own for seconds, and the most it
+// took of the panel at a time, so the heath knows what it can have next to its own
+static void costs(const Case &c, const Args &a) {
+  namespace anim = flexit::panel::anim;
+  for (int i = 0; i < live::NSHOWS; i++) {
+    if (!live::SHOWS[i].fits(scene) || live::SHOWS[i].start == live::life_on_heath)
+      continue;
+    live::stop();
+    anim::reset();
+    live::R.show = i;
+    live::SHOWS[i].start(scene);
+    int places = 0, slots = 0;
+    size_t bytes = 0;
+    for (uint32_t end = sim::now_ms + (uint32_t) a.seconds * 1000; sim::now_ms < end; sim::now_ms += live::STEP) {
+      live::loop(true);
+      anim::step(live::STEP);
+      size_t b = 0;
+      places = std::max(places, anim::copies_shown());
+      slots = std::max(slots, anim::slots_used(&b));
+      bytes = std::max(bytes, b);
+    }
+    printf("%-26s cost of %-36s %d places, %d slots, %5zu bytes of frames\n", c.name, live::SHOWS[i].name, places,
+           slots, bytes);
+  }
+  live::stop();
+  anim::reset();
+}
+
 static void run(const Case &c, const Args &a) {
   std::string dir = a.out + "/" + c.name;
   mkdir(dir.c_str(), 0755);
@@ -306,6 +334,10 @@ static void run(const Case &c, const Args &a) {
         live::R.timers[i].at = std::min(live::R.timers[i].at, sim::now_ms + 1500 + 6000 * (uint32_t) k++);
   printf("%-26s %-9s %2d colours, %5zu bytes packed%s  %s\n", c.name, GROUNDS[c.ground], colours, packed,
          packed > 13824 ? " (too big, a JPEG)" : "", show >= 0 ? live::SHOWS[show].name : "no show");
+  if (a.costs) {
+    costs(c, a);
+    return;
+  }
   if (a.check && c.ground == G_HEATH && show >= 0 && !strcmp(live::SHOWS[show].name, "Life on the heath")) {
     failed |= !check(c);
     return;
@@ -315,7 +347,8 @@ static void run(const Case &c, const Args &a) {
   picture(rgb);
   static uint32_t base[W * H];
   memcpy(base, rgb, sizeof base);
-  int frames = a.seconds * a.fps, every = 1000 / a.fps, most = 0;
+  int frames = a.seconds * a.fps, every = 1000 / a.fps, most = 0, slots = 0;
+  size_t bytes = 0;
   uint32_t next = sim::now_ms;
   for (int k = 0; k < frames;) {
     live::loop(true);
@@ -329,12 +362,16 @@ static void run(const Case &c, const Args &a) {
       write_ppm(dir + f, rgb);
       next += (uint32_t) every;
       most = std::max(most, flexit::panel::anim::copies_shown());
+      size_t b = 0;
+      slots = std::max(slots, flexit::panel::anim::slots_used(&b));
+      bytes = std::max(bytes, b);
     }
   }
   FILE *f = fopen((dir + "/fps").c_str(), "w");
   fprintf(f, "%d\n", a.fps);
   fclose(f);
-  printf("%-26s %d s of animation, up to %d copies at a time\n", "", a.seconds, most);
+  printf("%-26s %d s of animation, up to %d copies, %d of %d slots and %zu bytes of frames at a time\n", "",
+         a.seconds, most, slots, ANIM_SLOTS, bytes);
 }
 
 int main(int argc, char **argv) {
@@ -360,6 +397,8 @@ int main(int argc, char **argv) {
       a.lon = atof(next());
     else if (s == "--check")
       a.check = true;
+    else if (s == "--costs")
+      a.costs = true;
     else if (s == "-v")
       sim::verbose = true;
     else if (s == "--list") {

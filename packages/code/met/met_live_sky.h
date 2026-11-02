@@ -2,6 +2,7 @@
 // and the fog, drawn the scene's own way in place of its still ones
 #pragma once
 #include "met_live.h"
+#include "met_live_land.h"
 
 namespace flexit::panel::met::live {
 
@@ -14,7 +15,7 @@ inline constexpr int SKY_POOL = ANIM_POOL - 144;
 struct TileCost {
   int start, row, each, slant;
 };
-inline constexpr TileCost TILE_COST[] = {{650, 1, 32, 13}, {930, 4, 76, 0}, {1400, 1, 123, 32}};
+inline constexpr TileCost TILE_COST[] = {{650, 1, 32, 13}, {930, 5, 78, 0}, {1400, 1, 123, 32}};
 // The bolt: to start with, and a row
 inline constexpr int BOLT_START = 100, BOLT_ROW = 4;
 // A cloud: fifths of its frame, and to start with
@@ -33,7 +34,9 @@ struct Sky {
   float dens;                              // streaks or flakes per px
   int kind, slant;                         // 0 rain, 1 snow, 2 both, and their x per 8 rows
   decltype(Scene::bolt_x) bolt_x, bolt_y;  // the scene's bolt
+  uint8_t top[W];                          // the skyline it strikes behind
   int16_t shoot[6][3];                     // where a shooting star may start, and which way, x 0 for none
+  int16_t sat, sat_dy;                     // the row a satellite crosses from and how much higher it ends, -1 none
 };
 inline Sky SKY;
 
@@ -131,6 +134,7 @@ inline void prec_start(const Scene &s, int tw, int room) {
 inline void keep_bolt(const Scene &s) {
   memcpy(SKY.bolt_x, s.bolt_x, sizeof s.bolt_x);
   memcpy(SKY.bolt_y, s.bolt_y, sizeof s.bolt_y);
+  skyline(s, SKY.top);
 }
 // What the scene's bolt takes of the pool
 inline int bolt_bytes(const Scene &s) {
@@ -143,7 +147,16 @@ inline int bolt_bytes(const Scene &s) {
 inline uint32_t flash() {
   int x, y;
   unload("bolt");
-  add("bolt", bolt(SKY.bolt_x, SKY.bolt_y, (int) std::size(SKY.bolt_x), &x, &y));
+  Frames b = bolt(SKY.bolt_x, SKY.bolt_y, (int) std::size(SKY.bolt_x), &x, &y);
+  auto whole = b.draw;
+  b.draw = [whole, x, y, w = b.w, h = b.h](int f, const Canvas &c) {  // behind the town and the land, like the scene's
+    whole(f, c);
+    for (int yy = 0; yy < h; yy++)
+      for (int xx = 0; xx < w; xx++)
+        if (y + yy >= SKY.top[std::clamp(x + xx, 0, W - 1)])
+          c.px[yy * c.w + xx] = 0;
+  };
+  add("bolt", std::move(b));
   place("bolt", 0, x, y, {false, 0, 0});
   rounds("bolt", 0, 1);
   later(15000, [] { unload("bolt"); });
@@ -322,9 +335,7 @@ inline uint32_t shoot() {
   if (!c[0])
     return 0;
   int x = c[2] > 0 ? c[0] : c[0] + 40;  // the box from its start to where it goes out
-  place("shooting", 0, x, c[1], {true, 0, 0});
-  if (c[2] < 0)
-    flip("shooting", 0, true, false);
+  place_flipped("shooting", 0, x, c[1], c[2] < 0, {true, 0, 0});
   rounds("shooting", 0, 1);
   move("shooting", 0, x + c[2] * 40, c[1] + 15, 490);
   return 490;
@@ -345,21 +356,39 @@ inline void shoot_spots(const Scene &s) {
     row(s, y, px);
     for (int i = 0; i < 6; i++)
       for (int x = c[i][0]; c[i][0] && y >= c[i][1] && y < c[i][1] + 24 && x < c[i][0] + 64; x++)
-        if (px[x] != s.ix[C_SKY + band_of(y)] && px[x] != s.ix[C_DIM] && px[x] != s.ix[C_STAR])
+        if (!sky_px(s, px[x], y))
           c[i][0] = 0;
   }
 }
 
-// The sky turns: the stars sparkle where they are now, and shooting stars start where it's clear now
+// A satellite glides across the sky at 4 px/s, rising a little, a faint dot that flares up once. The ms it takes.
+inline uint32_t satellite() {
+  if (SKY.sat < 0)
+    return 0;
+  uint32_t ms = (W + 6) * 1000 / 4;
+  place("satellite", 0, -3, SKY.sat, {true});
+  rounds("satellite", 0, 1);
+  move("satellite", 0, W + 3, SKY.sat - SKY.sat_dy, (int) ms);
+  return gone_later(ms, "satellite");
+}
+
+// The sky turns: the stars sparkle where they are now, and shooting stars and satellites go where it's clear now
 inline void stars_turn(const Scene &s) {
   twinkle_stars(s);
   shoot_spots(s);
+  SKY.sat_dy = (int16_t) rnd(10, 40);
+  SKY.sat = (int16_t) sky_line(s, 3, 3, 50, 120, -SKY.sat_dy);
 }
 
-// The stars sparkle, and about every 5 minutes a shooting star, from where the sky is clear, never the moon
+// The stars sparkle, and about every 5 minutes a shooting star, from where the sky is clear, never the moon. Now and
+// then a satellite crosses, or by the cabin a fox trots by.
 inline void starry_night(const Scene &s) {
   stars_turn(s);
   sometimes(minutes(5), minutes(1), shoot);
+  bool cabin = s.cabin;
+  int y = std::min(s.cabin_y + 9, H - 6), stop = window_x(s) - 2;
+  visitors(minutes(8), minutes(1, 6), 2,
+           [=](int k) -> uint32_t { return k ? (cabin ? fox_by(y, stop) : 0) : satellite(); });
 }
 
 // ---- the clouds

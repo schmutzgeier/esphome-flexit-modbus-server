@@ -12,6 +12,9 @@ substitutions:
 esphome:
   includes:
     - code/summer_cooling.h
+  on_boot:
+    - then:
+        - lambda: id(summer_cooling_running).publish_state(false);  // off until the first tick
 
 packages:
   # Cool when the extract air is warmer than this
@@ -45,14 +48,16 @@ switch:
     restore_mode: RESTORE_DEFAULT_ON
 
 binary_sensor:
+  # Only tick() changes it, the interval publishes it after each one
   - platform: template
     name: "Summer Cooling Active"
     id: summer_cooling_running
     device_class: running
     icon: "mdi:snowflake"
-    lambda: return flexit::summer_cooling::state.boost.active;
 
 interval:
   - interval: 30s
     then:
-      - lambda: flexit::summer_cooling::tick(${flexit_summer_cooling_mode}, ${flexit_summer_cooling_quiet});
+      - lambda: |-
+          flexit::summer_cooling::tick(${flexit_summer_cooling_mode}, ${flexit_summer_cooling_quiet});
+          id(summer_cooling_running).publish_state(flexit::summer_cooling::state.boost.active);

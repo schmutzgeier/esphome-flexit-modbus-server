@@ -4,6 +4,7 @@
 // the little of ESPHome that met_live*.h use: millis(), the logs, the time and picture::has_ram().
 #pragma once
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdarg>
 #include <cstdint>
@@ -164,12 +165,20 @@ struct Copy {
   float px = 0, py = 0;  // where it was a step ago, for face
 };
 
+enum State { WANT, SENT, FAILED };
+
+// A slot on the panel, ANIM_SLOTS of them. It's sent at once here, or FAILED when its frame doesn't fit ANIM_POOL.
 struct Anim {
-  std::string name;
+  std::string name;  // "" = free slot
   Source src;
-  uint32_t t0;
+  uint32_t t0 = 0;
   bool cleared = false;
-  Copy copies[8];
+  int state = WANT;
+  std::array<Copy, ANIM_PLACES> copies;
+  size_t frame_bytes() const { return (size_t) src.w / 2 * src.h; }
+  // The records' bytes: not modelled, they depend on how well pdeflate packs the frames. The shows budget for them
+  // themselves, see met_live_sky.h's SKY_POOL.
+  size_t data_bytes() const { return 0; }
   std::map<int, std::vector<uint32_t>> frames;  // drawn, by frame
   const std::vector<uint32_t> &frame(int f) {
     auto it = frames.find(f);
@@ -200,39 +209,84 @@ struct Anim {
     return 0;
   }
 };
-inline std::vector<std::unique_ptr<Anim>> anims;
+inline Anim anims[ANIM_SLOTS];
 
 inline Anim *find(const std::string &name) {
   for (auto &a : anims)
-    if (a->name == name && !a->cleared)
-      return a.get();
+    if (!a.name.empty() && a.name == name && !a.cleared)
+      return &a;
   return nullptr;
 }
+
+// Bytes of ANIM_POOL the animations on the panel take, with their copies' own frames, other than a's
+inline size_t used_by_others(const Anim *a) {
+  size_t n = 0;
+  for (auto &o : anims) {
+    if (&o == a || o.name.empty() || o.state != SENT)
+      continue;
+    n += o.frame_bytes() + o.data_bytes();
+    for (auto &c : o.copies)
+      n += c.used && c.own ? o.frame_bytes() : 0;
+  }
+  return n;
+}
+
+// The slot of name, taking a free one: null when all ANIM_SLOTS are taken. One that doesn't fit the pool next to
+// the others is FAILED, as the panel's PIC_TOO_BIG would have it.
 inline Anim *want(const std::string &name) {
   if (Anim *a = find(name))
-    return a;
+    return a->state == FAILED ? nullptr : a;
   auto s = sources.find(name);
   if (s == sources.end())
     return nullptr;
-  anims.push_back(std::make_unique<Anim>());
-  Anim *a = anims.back().get();
+  Anim *a = nullptr;
+  for (auto &o : anims)
+    if (o.name.empty()) {
+      a = &o;
+      break;
+    }
+  if (!a) {
+    sim::log('W', "anim", "%s: all %d slots taken", name.c_str(), ANIM_SLOTS);
+    return nullptr;
+  }
+  *a = Anim();
   a->name = name;
   a->src = s->second;
   a->t0 = millis();
+  size_t need = a->frame_bytes() + a->data_bytes(), used = used_by_others(a);
+  a->state = used + need <= ANIM_POOL ? SENT : FAILED;
+  if (a->state == FAILED) {
+    sim::log('W', "anim", "%s: %zu bytes don't fit next to the others' %zu of %d", name.c_str(), need, used,
+             ANIM_POOL);
+    return nullptr;
+  }
   return a;
 }
 inline Copy *copy_of(const std::string &name, int i) {
   Anim *a = find(name);
-  return a && i >= 0 && i < 8 && a->copies[i].used && !a->copies[i].fading ? &a->copies[i] : nullptr;
+  return a && i >= 0 && i < ANIM_PLACES && a->copies[i].used && !a->copies[i].fading ? &a->copies[i] : nullptr;
 }
 
-inline int slot_for(const std::string &name) { return want(name) ? 0 : -1; }
+inline Anim *slot_for(const std::string &name) { return want(name); }
+
+// Copies on the panel, each in one of its ANIM_PLACES
+inline int places_used() {
+  int n = 0;
+  for (auto &a : anims)
+    for (auto &c : a.copies)
+      n += c.used;
+  return n;
+}
 
 inline void place(const std::string &name, int i, int x, int y, bool own, int start, int fade = -1) {
   Anim *a = want(name);
-  if (!a || i < 0 || i >= 8)
+  if (!a || i < 0 || i >= ANIM_PLACES)
     return;
   Copy &c = a->copies[i];
+  if (!c.used && places_used() >= ANIM_PLACES) {
+    sim::log('W', "anim", "%s: all %d places taken", name.c_str(), ANIM_PLACES);
+    return;
+  }
   c = Copy();
   c.used = true;
   c.base[X] = c.px = (float) x;
@@ -249,7 +303,7 @@ inline void fade_out(Anim &a, Copy &c, int fade) {
 }
 inline void remove(const std::string &name, int i, int fade = -1) {
   Anim *a = find(name);
-  if (a && i >= 0 && i < 8 && a->copies[i].used && !a->copies[i].fading)
+  if (a && i >= 0 && i < ANIM_PLACES && a->copies[i].used && !a->copies[i].fading)
     fade_out(*a, a->copies[i], fade);
 }
 inline void clear(const std::string &name) {
@@ -285,6 +339,10 @@ inline void drift(const std::string &name, int i, float vx, float vy) {
     c->drift[Y] = vy;
     c->glide[X].on = c->glide[Y].on = c->wander.on = false;
   }
+}
+inline void spin(const std::string &name, int i, float speed) {
+  if (Copy *c = copy_of(name, i))
+    c->drift[TURN] = speed;  // degrees a second, 0 stops it where it is
 }
 inline void flip(const std::string &name, int i, bool x, bool y) {
   if (Copy *c = copy_of(name, i)) {
@@ -414,8 +472,9 @@ inline float wave_value(Wave &v) {
 inline void step(uint32_t dt) {
   uint32_t now = millis();
   float s = dt / 1000.0f;
-  for (auto &ap : anims) {
-    Anim &a = *ap;
+  for (Anim &a : anims) {
+    if (a.name.empty())
+      continue;
     for (Copy &c : a.copies) {
       if (!c.used)
         continue;
@@ -475,23 +534,23 @@ inline void step(uint32_t dt) {
       c.py = c.base[Y];
     }
   }
-  anims.erase(std::remove_if(anims.begin(), anims.end(),
-                             [](auto &a) {
-                               if (!a->cleared)
-                                 return false;
-                               for (Copy &c : a->copies)
-                                 if (c.used)
-                                   return false;
-                               return true;
-                             }),
-              anims.end());
+  for (Anim &a : anims) {  // a cleared one lets go of its slot once its copies have faded
+    if (a.name.empty() || !(a.cleared || a.state == FAILED))
+      continue;
+    bool any = false;
+    for (Copy &c : a.copies)
+      any |= c.used;
+    if (!any)
+      a = Anim();
+  }
 }
 
 // Draws every copy over rgb, W x H of 0xRRGGBB
 inline void draw(uint32_t *rgb, int W, int H) {
   uint32_t now = millis();
-  for (auto &ap : anims) {
-    Anim &a = *ap;
+  for (Anim &a : anims) {
+    if (a.name.empty())
+      continue;
     for (Copy &c : a.copies) {
       if (!c.used)
         continue;
@@ -571,7 +630,7 @@ inline int copies_shown(int *n_anims = nullptr) {
   int n = 0, k = 0;
   for (auto &a : anims) {
     int m = 0;
-    for (Copy &c : a->copies)
+    for (Copy &c : a.copies)
       m += c.used;
     n += m;
     k += m > 0;
@@ -581,9 +640,20 @@ inline int copies_shown(int *n_anims = nullptr) {
   return n;
 }
 
+// Slots taken now, and the bytes of ANIM_POOL their frames take
+inline int slots_used(size_t *bytes = nullptr) {
+  int n = 0;
+  for (auto &a : anims)
+    n += !a.name.empty() && a.state == SENT;
+  if (bytes)
+    *bytes = used_by_others(nullptr);
+  return n;
+}
+
 // Everything off, for the next picture
 inline void reset() {
-  anims.clear();
+  for (Anim &a : anims)
+    a = Anim();
   sources.clear();
 }
 

@@ -13,9 +13,13 @@
 namespace flexit::panel::met {
 
 inline constexpr int W = 320, H = 240;
-inline constexpr int HORIZON = 156;                        // just above the panel's clock band, the bottom 74 rows
-inline constexpr int CABIN_X = 178;                        // in the band's gap between the clock and the temperatures
-inline constexpr int OV_H = 80;                            // rows of the forecast overlay, at the top
+inline constexpr int HORIZON = 156;  // just above the panel's clock band, the bottom 74 rows
+inline constexpr int CABIN_X = 178;  // in the band's gap between the clock and the temperatures
+// The panel's clock and date go over the bottom left of the picture, its temperatures over the bottom right, with
+// the texts where most have them. What a show parks on the land goes in the gap between them, or under the
+// temperatures right of the date.
+inline constexpr int GAP_L = 126, GAP_R = 228, DATE_R = 154, TEMPS_BOT = 222;
+inline constexpr int OV_H = 80;  // rows of the forecast overlay, at the top
 inline constexpr int16_t BAND[5] = {0, 52, 92, 118, 138};  // first row of each sky band
 inline constexpr int RB_RX = 100, RB_RY = 96;              // the rainbow's outer radii
 inline constexpr int LH_X = 268;                           // the lighthouse, on the coast's point
@@ -42,6 +46,11 @@ inline constexpr Baseline BASELINES[] = {{174, 204}, {184, 206}, {186, 206}, {17
 // The city's middle ground, flat. The buildings stand on it and the near windows end 4 rows above it.
 // Thick fog lies at this row in every landscape.
 inline constexpr int CITY_GROUND_Y = BASELINES[G_CITY].mid;
+// The city's road along the buildings' foot, rows from the far pavement to the near one: the far lane, its dashed
+// middle, the near lane, the kerb and the red bike lane. What stands behind it stands on the far pavement, and
+// nothing in front reaches up into it, so what drives on it never passes through anything.
+inline constexpr int ROAD_FAR = CITY_GROUND_Y, ROAD_MID = ROAD_FAR + 4, ROAD_KERB = ROAD_FAR + 8,
+                     ROAD_NEAR = ROAD_FAR + 11;
 // What the weather animations draw in the picture's place, see met_live.h
 enum : uint16_t {
   L_BIRDS = 1 << 0,
@@ -118,6 +127,9 @@ enum : uint8_t {
   C_BLD,
   C_BLD_BACK,
   C_BLD_EDGE,
+  C_ROAD,  // the road's asphalt, its kerbs and dashes, and the bike lane
+  C_KERB,
+  C_LANE,
   C_RIDGE,
   C_LH,
   C_LH_BAND,
@@ -259,6 +271,7 @@ struct At {
   bool dark, rain, snow, thunder;
   bool white;  // snow on the ground
   bool fair;   // sunny enough for birds
+  bool north;  // from Nordland and north, from 65 degrees
   bool xmas, newyear, easter_days, midsummer, halloween, valentine, may17, flag_up, fireplace;
   int8_t wdir;                                // which way the wind blows things, 1 to the right
   uint8_t season, hour, month, day, weekday;  // weekday 0 Sunday, season see season_of()
@@ -317,7 +330,7 @@ struct Scene {
   int16_t cabin_x, cabin_y;  // centre, and floor on the near hill
   Pt win;                    // the window's glass, see window_x()
   bool window_lit;
-  int16_t pole_x, pole_top, pole_base;  // flagpole, by the cabin or in the city's park
+  int16_t pole_x, pole_top, pole_base;  // flagpole, by the cabin or by the city's road
   int16_t home_x;                       // where the holidays happen, the cabin or the pole
   // where things are, for the weather animations, x -1 for none: the chimney's top, the bonfire's base, the
   // pumpkin, the boat, the antenna's top, the star on the Christmas spruce, the eggs and the spruce's lights
@@ -372,12 +385,22 @@ inline int cloud_x(const Scene &s, int i) {
 
 inline bool high_cloud(const Scene &s, int i) { return s.cloud_layer[i] == 0; }  // the rest are middle and low
 
-// Half width of an ellipse dy rows from its centre, -1 if outside
+// Half width of an ellipse dy rows from its centre, -1 if outside: rx * sqrt(1 - dy^2 / ry^2) rounded, so the
+// largest h with (2h - 1)^2 ry^2 <= 4 rx^2 (ry^2 - dy^2). In integers, an ESP32-C3 has no FPU.
 inline int half(int dy, int rx, int ry) {
   if (dy < -ry || dy > ry || ry <= 0)
     return -1;
-  float v = 1 - (float) (dy * dy) / (float) (ry * ry);
-  return (int) (rx * sqrtf(v) + 0.5f);
+  uint64_t most = 4ull * (uint32_t) (rx * rx) * (uint32_t) (ry * ry - dy * dy);
+  int lo = 0, hi = std::max(rx, 0);
+  while (lo < hi) {
+    int h = (lo + hi + 1) / 2;
+    uint64_t q = (uint64_t) (2 * h - 1) * (uint32_t) ry;
+    if (q * q <= most)
+      lo = h;
+    else
+      hi = h - 1;
+  }
+  return lo;
 }
 
 // A spruce's half width d rows below its top, a narrow cone with ragged tiers, and whether snow lies on it there
