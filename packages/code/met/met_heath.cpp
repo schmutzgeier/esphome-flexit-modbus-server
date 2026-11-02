@@ -66,18 +66,20 @@ static int luma(uint32_t c) { return (int) ((c >> 16) * 3 + (c >> 8 & 255) * 6 +
 // What the heath goes by besides Now
 struct Day {
   bool awake;    // from six to midnight, the cabin's light can be on
-  bool indoors;  // rain over 4 mm in the hour, or the night: everyone's in
+  bool indoors;  // rain over 4 mm in the hour, the night, the aurora or New Year's fireworks: everyone's in
   bool pride;    // International Pride Day: the rainbow flag
   bool pride_up;
   int bft;     // the wind's Beaufort force
   float wave;  // wave height in m: Oceanforecast's, or the table's for bft
 };
 
-static Day day_of(const Now &n) {
+// With the aurora or the fireworks out everyone's in, so the sky's show has the panel's animations to itself
+static Day day_of(const Scene &s, const Now &n) {
   Day d;
   int minutes = (int) (n.local % 86400 / 60);
   d.awake = minutes >= 6 * 60;                                                            // asleep from midnight to six
-  d.indoors = (n.rain && n.w.ok && n.w.rain > 4) || !d.awake || minutes >= 22 * 60 + 30;  // home from half past 10
+  d.indoors = (n.rain && n.w.ok && n.w.rain > 4) || !d.awake || minutes >= 22 * 60 + 30 ||  // home from half past 10
+              s.aurora || (n.newyear && n.dark);
   d.bft = n.w.ok ? beaufort(n.w.wind) : 1;  // without the weather, a little light on the water
   d.wave = n.w.wave >= 0 ? n.w.wave : BFT_WAVE[d.bft];
   d.pride = n.month == 6 && n.day == 28;
@@ -538,8 +540,9 @@ static void bay(Scene &s, const Now &n, const Day &d) {
 
 // The two of them and the dog: climbing the mountain, paddling the bay, and on the hill by the cabin. When it rains
 // the climber runs the ridge instead, with waves over 2 m or wind over 12 m/s the kayaker comes ashore and runs,
-// with snow both are out on skis, and in rain over 4 mm all three are in the cabin, behind its big window. From
-// half past ten to six they're all home, behind the window until its light goes out at midnight.
+// with snow both are out on skis, and in rain over 4 mm all three are in the cabin, behind its big window, as they
+// are under the aurora and New Year's fireworks. From half past ten to six they're all home, behind the window until
+// its light goes out at midnight.
 static void people(Scene &s, const Now &n, const Day &d) {
   Heath &h = s.heath;
   s.rgb[C_FIG] = mix(0x070B11, 0x1A1E26, n.light);
@@ -566,7 +569,7 @@ void heath_ground(Scene &s, const Now &n, uint32_t seed) {
     land.ground = G_HEATH;
     land.made = true;
   }
-  Day d = day_of(n);
+  Day d = day_of(s, n);
   // where the cabin's things are, for the animations: the roof's top 15 rows under a gull's feet, the window's
   // lower half, the chimney's top, the pole only on flag days
   s.cabin = true;
@@ -652,7 +655,7 @@ static void animals(Scene &s, const Now &n, const Day &d) {
 void heath_life(Scene &s, const Now &n, Rng &rng) {
   using namespace art;
   Heath &h = s.heath;
-  Day d = day_of(n);
+  Day d = day_of(s, n);
   // Chimney smoke while the heater's on, more in fireplace mode: a wisp curling up from the chimney as on the
   // artboard, taller the more there is. The animations' puffs take its place, or hearts on Valentine's day.
   int puffs = n.o.fireplace ? 5 : n.o.heater_pct > 0 ? 2 + std::min(3, n.o.heater_pct / 30) : 0;

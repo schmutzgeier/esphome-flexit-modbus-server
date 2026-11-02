@@ -134,13 +134,13 @@ inline void rare_off() {
 }
 
 // Whether the panel has room for one more animation for ms: a slot and a place, RARE_BYTES of the pool, nothing
-// being made or sent, and nothing of the show's due before it's over. What a show's parts keep for themselves
-// isn't room, see kept().
+// being made or sent, and nothing of the show's due before it's over
 inline bool rare_room(uint32_t ms) {
-  int slots = 0, places = 0;
+  bool slot = false;
+  int places = 0;
   for (auto &a : anim::anims) {
     if (a.name.empty()) {
-      slots++;
+      slot = true;
       continue;
     }
     if (a.state != anim::SENT)
@@ -148,9 +148,8 @@ inline bool rare_room(uint32_t ms) {
     for (auto &c : a.copies)
       places += c.used;
   }
-  Share k = kept();
-  if (slots <= k.slots || places + k.places >= ANIM_PLACES || anim::W.phase != anim::IDLE ||
-      anim::used_by_others(nullptr) + (size_t) k.bytes + RARE_BYTES > ANIM_POOL)
+  if (!slot || places >= ANIM_PLACES || anim::W.phase != anim::IDLE ||
+      anim::used_by_others(nullptr) + RARE_BYTES > ANIM_POOL)
     return false;
   uint32_t end = millis() + ms;
   for (const Timer &t : R.timers)

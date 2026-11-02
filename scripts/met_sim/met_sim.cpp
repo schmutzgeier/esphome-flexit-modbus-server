@@ -273,7 +273,7 @@ static bool failed;
 static void costs(const Case &c, const Args &a) {
   namespace anim = flexit::panel::anim;
   for (int i = 0; i < live::NSHOWS; i++) {
-    if (!live::SHOWS[i].fits(scene) || live::SHOWS[i].start == live::heath_show)
+    if (!live::SHOWS[i].fits(scene) || live::SHOWS[i].start == live::life_on_heath)
       continue;
     live::stop();
     anim::reset();
