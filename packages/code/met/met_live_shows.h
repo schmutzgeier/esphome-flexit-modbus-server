@@ -1,6 +1,9 @@
 // The weather animations' shows in the order they're tried, the first that fits the picture runs. The shows
-// themselves are in met_live_*.h, with met_live_rare.h's encounters now and then over any of them.
+// themselves are in met_live_*.h, with met_live_rare.h's encounters now and then over any of them. On the heath
+// one more goes along with its people, see heath_show().
 #pragma once
+#include <cstring>
+#include <iterator>
 #include "met_live.h"
 #include "met_live_days.h"
 #include "met_live_heath.h"
@@ -31,8 +34,17 @@ inline bool has_clouds(const Scene &s, bool high) {
   return false;
 }
 
+// The heath's people, dog and visitors, and a show that goes along with them, see below
+inline void heath_show(const Scene &s);
+inline void heath_redo(const Scene &s);
+inline uint32_t heath_made_of(const Scene &s);
+
 // clang-format off: a show a line, and whether it fits on the next
 inline const Show SHOWS[] = {
+    // the heath's people, dog and visitors, whenever someone's out, before everything else, and the day's or the
+    // weather's show along with them in what they leave
+    {"Life on the heath", L_HEATH, heath_show, heath_redo, heath_made_of,
+     [](const Scene &s) { return s.ground == G_HEATH && s.heath.nfig > 0; }},
     // the days, when the picture has them
     {"Christmas Eve in town", L_XMAS | L_FLAG, xmas_town, nullptr, nullptr,
      [](const Scene &s) { return s.at.xmas && s.at.dark && s.ground == G_CITY && s.nlights; }},
@@ -50,9 +62,6 @@ inline const Show SHOWS[] = {
      [](const Scene &s) { return s.at.may17 && !s.at.dark && !s.at.rain; }},
     {"Easter", L_FLAG, easter, nullptr, nullptr,
      [](const Scene &s) { return s.at.easter_days && s.neggs && !s.at.dark; }},
-    // the heath's people, dog and visitors, whenever someone's out, before the weather
-    {"Life on the heath", L_HEATH, life_on_heath, nullptr, heath_cast,
-     [](const Scene &s) { return s.ground == G_HEATH && s.heath.nfig > 0; }},
     // the weather
     {"Thunderstorm", L_PREC | L_BOLT, thunderstorm, prec_redo, nullptr,
      [](const Scene &s) { return s.at.thunder; }},
@@ -101,9 +110,84 @@ inline const Show SHOWS[] = {
 // clang-format on
 inline constexpr int NSHOWS = sizeof SHOWS / sizeof *SHOWS;
 
+// ---- the heath's people and the show that goes along with them
+
+// Thunder on the heath is the bolt alone, see heath_thunder()
+inline const Show HEATH_THUNDER = {"Thunder over the heath", L_BOLT, heath_thunder, heath_bolt, nullptr,
+                                   [](const Scene &s) { return s.at.thunder && s.bolt; }};
+
+// The shows that can go along with the heath's people, in the order they're tried: the days, then the weather and
+// the light, and the chimney's smoke last. Not the rain, snow or clouds, whose tiles would take every place there
+// is, they stay the picture's.
+inline const char *const HEATH_WITH[] = {
+    "New Year's Eve", "Sankthans", "Halloween", "Valentine's Day", "17 May", "Easter", "Christmas Eve",
+    HEATH_THUNDER.name, "Northern lights", "Summer butterflies", "Birch leaves and geese", "Starry winter night",
+    "Gulls over the cabin", "Stove smoke and an advent star",
+};
+
+inline const Show *show_named(const char *name) {
+  if (!strcmp(name, HEATH_THUNDER.name))
+    return &HEATH_THUNDER;
+  for (const Show &x : SHOWS)
+    if (!strcmp(x.name, name))
+      return &x;
+  return nullptr;
+}
+
+// The one that goes along with the heath's people now, its index in HEATH_WITH, -1 none
+inline int heath_with(const Scene &s) {
+  for (int i = 0; i < (int) std::size(HEATH_WITH); i++)
+    if (const Show *x = show_named(HEATH_WITH[i]); x && x->fits(s))
+      return i;
+  return -1;
+}
+inline const Show *heath_extra(const Scene &s) {
+  int i = heath_with(s);
+  return i < 0 ? nullptr : show_named(HEATH_WITH[i]);
+}
+
+// What the show leaves out of the picture, the heath's with what goes along with it
+inline uint16_t live_of(const Scene &s, int show) {
+  uint16_t l = SHOWS[show].live;
+  if (SHOWS[show].start == heath_show)
+    if (const Show *x = heath_extra(s))
+      l |= x->live;
+  return l;
+}
+
 // The flag on its pole on flag days, waving in place of the picture's, if the show has room
 inline bool flag_fits(const Scene &s, int show) {
-  return show >= 0 && (SHOWS[show].live & L_FLAG) && s.at.flag_up && s.pole_x >= 0;
+  return show >= 0 && (live_of(s, show) & L_FLAG) && s.at.flag_up && s.pole_x >= 0;
+}
+
+// The people, the dog and the visitors first, with what they need kept for them, then the other show in what's
+// left: the slots, places and pool after theirs and the flag's
+inline void heath_show(const Scene &s) {
+  Share cast = heath_needs(s);
+  R.keep[PART_CAST] = cast;
+  as_part(PART_CAST, [&] { life_on_heath(s); });
+  const Show *x = heath_extra(s);
+  if (!x)
+    return;
+  bool flag = (x->live & L_FLAG) && s.at.flag_up && s.pole_x >= 0;
+  Share left{ANIM_SLOTS - cast.slots - flag, ANIM_PLACES - cast.places - flag,
+             SKY_POOL - cast.bytes - (flag ? FLAG_BYTES : 0)};
+  if (left.slots <= 0 || left.places <= 0 || left.bytes <= 0)
+    return;
+  R.share[PART_EXTRA] = R.keep[PART_EXTRA] = left;
+  ESP_LOGI("met", "With it: %s, in %d slots, %d places and %d bytes", x->name, left.slots, left.places, left.bytes);
+  as_part(PART_EXTRA, [&] { x->start(s); });
+}
+inline void heath_redo(const Scene &s) {
+  const Show *x = heath_extra(s);
+  if (x && x->redo)
+    as_part(PART_EXTRA, [&] { x->redo(s); });
+}
+// Who's out, and which show goes along and what it's made of
+inline uint32_t heath_made_of(const Scene &s) {
+  uint32_t m = heath_cast(s) * 31u + (uint32_t) (heath_with(s) + 1);
+  const Show *x = heath_extra(s);
+  return x && x->made_of ? m * 31u + x->made_of(s) : m;
 }
 
 // The flag's light in tenths. The flag is made again when it changes.
@@ -132,7 +216,7 @@ inline int pick(const Scene &s) {
 // What the picture leaves out for the show that fits it
 inline uint16_t leaves_out(const Scene &s) {
   int i = pick(s);
-  return i < 0 ? 0 : (uint16_t) ((SHOWS[i].live & ~L_FLAG) | (flag_fits(s, i) ? L_FLAG : 0));
+  return i < 0 ? 0 : (uint16_t) ((live_of(s, i) & ~L_FLAG) | (flag_fits(s, i) ? L_FLAG : 0));
 }
 
 // The show that fits the picture s, started if it's another, or started again if the place, the landscape or what

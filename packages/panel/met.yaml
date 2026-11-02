@@ -14,7 +14,7 @@
 # next day. Streaks in the air above the bay show the wind too. "Panel Weather Forecast" draws the forecast over the
 # picture with the wind, in the clock band's font and shadow, and on the heath the wave height under the date.
 # With "Panel Animation Weather" on, the heath's people, dog, reindeer and walrus move whenever someone's outside,
-# before the weather's animations.
+# with the day's or the weather's show in what they leave of the panel.
 # Weather data: MET Norway, CC BY 4.0.
 defaults:
   name: weather

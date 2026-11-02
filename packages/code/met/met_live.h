@@ -21,11 +21,21 @@ namespace flexit::panel::met::live {
 // step, so a timer goes off up to one late
 inline constexpr int STEP = 50;
 
+// A show in parts, each with its share of the panel, so one can't take what another needs: the heath's people, dog
+// and visitors, and the show that goes along with them, see met_live_shows.h. What a part does, at once or by its
+// timers, is its own. PART_SHOW is a show that's all one, as most are, with no share.
+enum Part : uint8_t { PART_SHOW, PART_CAST, PART_EXTRA, PARTS };
+// Of the panel: animation slots, places for copies and bytes of the pool, as pool_bound() counts them
+struct Share {
+  int slots = INT_MAX, places = INT_MAX, bytes = INT_MAX;
+};
+
 struct Timer {
   uint32_t at;                   // millis()
   std::function<uint32_t()> fn;  // the ms it takes, for sometimes()
   uint32_t mean;                 // sometimes()'s, 0 for once
   bool rare = false;             // the roll for a rare encounter, see met_live_rare.h
+  uint8_t part = PART_SHOW;      // whose it is
 };
 
 // The show that runs and what it made
@@ -48,6 +58,14 @@ struct Running {
   std::string rare;                    // the sprite of the rare encounter on, see met_live_rare.h
   std::function<uint32_t(int)> visit;  // the show's visitors, see visitors()
   int visits;
+  uint8_t part = PART_SHOW;  // the part acting now
+  Share share[PARTS];        // what each may take, see Part
+  Share keep[PARTS];         // and what it needs kept for it, from the rare encounters
+  struct Owned {
+    uint8_t part;
+    int bytes;  // pool_bound()
+  };
+  std::map<std::string, Owned> owned;  // the parts' animations, by key()
 };
 inline Running R;
 
@@ -88,6 +106,47 @@ inline uint32_t frame_pixel(const Frames *sp, int f, int x, int y) {
   return R.px.empty() ? 0 : R.px[(size_t) y * sp->w + x];
 }
 
+// The most of the pool sp can take: its frame, and records no bigger than the frames they change
+inline int pool_bound(const Frames &sp) { return (sp.w + 1) / 2 * sp.h * (sp.count() + 1) + 64; }
+
+// What part has of the panel now: animations, copies placed, and pool_bound() of them with the copies' own frames
+inline Share use_of(uint8_t part) {
+  Share u{0, 0, 0};
+  for (auto &[k, o] : R.owned) {
+    if (o.part != part)
+      continue;
+    u.slots++;
+    u.bytes += o.bytes;
+    if (const anim::Anim *a = anim::find(k))
+      for (auto &c : a->copies) {
+        u.places += c.used;
+        u.bytes += c.used && c.own ? (int) a->frame_bytes() : 0;
+      }
+  }
+  return u;
+}
+
+// What the parts keep for themselves and aren't using now, so a rare encounter leaves it
+inline Share kept() {
+  Share k{0, 0, 0};
+  for (int p = PART_CAST; p < PARTS; p++) {
+    Share u = use_of((uint8_t) p);
+    const Share &n = R.keep[p];
+    k.slots += std::max(0, n.slots - u.slots);
+    k.places += std::max(0, n.places - u.places);
+    k.bytes += std::max(0, n.bytes - u.bytes);
+  }
+  return k;
+}
+
+// fn as part, what it does and its timers part's own
+template<class F> void as_part(uint8_t part, F fn) {
+  uint8_t was = R.part;
+  R.part = part;
+  fn();
+  R.part = was;
+}
+
 // A sprite the show made itself, like a cloud from the picture's. Before it's placed.
 inline void add(const std::string &name, Frames sp) { R.sprites[name] = std::move(sp); }
 
@@ -110,7 +169,7 @@ inline int ms_of(const std::string &name, int from = 0, int to = INT_MAX) {
   return sp ? sp->ms(from, to) : 0;
 }
 
-// name's sprite as a panel animation
+// name's sprite as a panel animation. In a part, only if it fits the part's share.
 inline bool ready(const std::string &name) {
   std::string k = key(name);
   if (anim::sources.count(k))
@@ -118,6 +177,16 @@ inline bool ready(const std::string &name) {
   const Frames *sp = frames_of(name);
   if (!sp)
     return false;
+  if (R.part != PART_SHOW) {
+    Share u = use_of(R.part);
+    const Share &sh = R.share[R.part];
+    int b = pool_bound(*sp);
+    if (u.slots >= sh.slots || u.bytes + b > sh.bytes) {
+      ESP_LOGD("met", "No room for %s next to the rest of the show", name.c_str());
+      return false;
+    }
+    R.owned[k] = {R.part, b};
+  }
   auto pixel = [sp](int f, int x, int y) { return frame_pixel(sp, f, x, y); };
   anim::Source s{sp->w, sp->h, sp->count(), 100, 0, 0, 1, pixel};
   s.delays = sp->delays;
@@ -133,6 +202,7 @@ inline void unload(const std::string &name) {
   anim::clear(k);
   anim::sources.erase(k);
   R.names.erase(std::remove(R.names.begin(), R.names.end(), k), R.names.end());
+  R.owned.erase(k);
   R.sprites.erase(name);
   R.drawn = nullptr;
 }
@@ -163,8 +233,21 @@ struct How {
   int start = 0;     // frames in, with one
   int fade = -1;     // ms it fades in, -1 the usual 300
 };
+// Whether a part has a place for copy i of n, and the pool for its own frame, if it isn't there already
+inline bool place_fits(const std::string &n, int i, bool own) {
+  if (R.part == PART_SHOW)
+    return true;
+  const anim::Anim *a = anim::find(key(n));
+  if (a && i < (int) a->copies.size() && a->copies[i].used)
+    return true;
+  Share u = use_of(R.part);
+  const Share &sh = R.share[R.part];
+  const Frames *sp = frames_of(n);
+  int frame = own && sp ? (sp->w + 1) / 2 * sp->h : 0;
+  return u.places < sh.places && u.bytes + frame <= sh.bytes;
+}
 inline void place(const std::string &n, int i, int x, int y, How o = {}) {
-  if (ready(n))
+  if (ready(n) && place_fits(n, i, o.own))
     anim::place(key(n), i, x, y, o.own, o.start, o.fade);
 }
 inline void flip(const std::string &n, int i, bool h, bool v) { anim::flip(key(n), i, h, v); }
@@ -230,7 +313,7 @@ inline void spin(const std::string &n, int i, float speed) { anim::spin(key(n), 
 // fn by chance, first after first ms, then about every mean ms after the last one ended, or just once with mean
 // 0. It returns the ms it takes.
 inline void sometimes(uint32_t mean, uint32_t first, std::function<uint32_t()> fn) {
-  R.timers.push_back({millis() + first, std::move(fn), mean});
+  R.timers.push_back({millis() + first, std::move(fn), mean, false, R.part});
 }
 // fn in ms, once
 template<class F> void later(uint32_t ms, F fn) {
@@ -489,7 +572,8 @@ uint32_t amble(const char *n, int i, const Line &h, int x0, int x1, float speed,
 }
 
 // Gulls, drawn at two sizes instead of scaled: near ones lower and quicker, far ones high, slow and hazy, on gusts
-// of slow waves, facing the way they fly. Each from x, y at speed s0..s1, between rows top and bottom.
+// of slow waves, facing the way they fly. Each from x, y at speed s0..s1, between rows top and bottom. Out past an
+// edge they turn back, out of sight, as gulls circle, rather than coming round from the other edge.
 struct Gull {
   int x, y;
   float s0, s1;
@@ -499,7 +583,7 @@ inline void flock(std::initializer_list<Gull> near, std::initializer_list<Gull> 
   int i = 0;
   for (const Gull &g : near) {
     place("gull", i, g.x, g.y, {false, (5 * i) % 8});
-    area("gull", i, -20, g.top, 340, g.bottom, "cross", "bounce");
+    area("gull", i, -40, g.top, W + 40, g.bottom, "bounce", "bounce");
     wave("gull", i, "speed", 70, 130, 4000, 4000, 2000, 2000, 50, true, "both");
     face("gull", i);
     wander("gull", i, g.s0, g.s1, 0, 180, 3000, 9000, 0, 0);
@@ -508,7 +592,7 @@ inline void flock(std::initializer_list<Gull> near, std::initializer_list<Gull> 
   i = 0;
   for (const Gull &g : far) {
     place("gullfar", i, g.x, g.y, {false, i * 3});
-    area("gullfar", i, -10, g.top, 330, g.bottom, "cross", "bounce");
+    area("gullfar", i, -30, g.top, W + 30, g.bottom, "bounce", "bounce");
     glide("gullfar", i, "opacity", 75, 0);
     face("gullfar", i);
     wander("gullfar", i, g.s0, g.s1, 0, 180, 5000, 12000, 0, 0);
@@ -523,8 +607,9 @@ inline void puff(const char *name, int i, int x, int y, int rise, int drift, int
   if (!sp)
     return;
   int ms = sp->ms() - STEP;  // a step less for the waves' jump back keeps them in step with the frames
-  int left = wdir < 0 ? drift + 20 : 20, right = wdir < 0 ? 30 : drift + 30;
   x -= sp->w / 2;
+  drift = std::max(0, std::min(drift, wdir < 0 ? x : W - sp->w - x));  // it doesn't drift off the screen
+  int left = wdir < 0 ? drift + 20 : 20, right = wdir < 0 ? 30 : drift + 30;
   place(name, i, x, y - sp->h / 2, {true});
   area(name, i, x - left, y - rise - 3, x + right, y + 2, "screen", "screen");
   map(name, i, "opacity", 100, 100, 0, 100);
@@ -593,6 +678,10 @@ inline void stop() {
   R.rare.clear();
   R.visit = nullptr;
   R.visits = 0;
+  R.part = PART_SHOW;
+  for (int p = 0; p < PARTS; p++)
+    R.share[p] = R.keep[p] = Share{};
+  R.owned.clear();
 }
 
 // Every 50 ms or so: what's due. shown: the weather is the panel's picture.
@@ -611,11 +700,13 @@ inline void loop(bool shown) {
       continue;
     std::function<uint32_t()> fn = R.timers[i].fn;  // it may add timers, or stop the show
     uint32_t mean = R.timers[i].mean;
+    uint8_t part = R.timers[i].part;
     float k = mean ? rnd(0.4f, 1.6f) : 0;
     if (!mean)
       R.timers.erase(R.timers.begin() + (long) i--);
     int show = R.show;
-    uint32_t ms = fn();
+    uint32_t ms = 0;
+    as_part(part, [&] { ms = fn(); });
     if (R.show != show)
       return;
     if (mean)

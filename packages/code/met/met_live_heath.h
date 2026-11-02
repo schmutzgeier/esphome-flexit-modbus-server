@@ -1,9 +1,12 @@
 // Animations on the heath: the person on the mountain climbing, running the ridge or skiing, the kayaker paddling
 // the bay or the runner on the shore, the dog roaming the hill by the cabin, and now and then a reindeer out of the
 // trees or a walrus in the bay. Their frames are met_heath_live.h's. The picture leaves them all out (L_HEATH).
+// They come first, the people, then the dog, then the visitors; met_live_shows.h has another show go along with
+// them in what they leave of the panel, see heath_needs().
 #pragma once
 #include "met_heath_live.h"
 #include "met_live.h"
+#include "met_live_sky.h"
 
 namespace flexit::panel::met::live {
 
@@ -206,9 +209,10 @@ inline void the_dog(const Scene &s) {
 
 // ---- the visitors, one at a time
 
-// A reindeer walks out of the trees behind the cabin onto the hill, grazes a while and goes back. The ms it takes.
+// A reindeer walks out of the trees behind the cabin onto the hill, away from the screen's edge, grazes a while and
+// goes back. The ms it takes.
 inline uint32_t deer_visit(const HeathSprite &walk, const HeathSprite &graze, const Line &ground) {
-  int x0 = walk.x, x1 = (int) rnd(245, 285), mid = walk.frames.w / 2;
+  int x0 = walk.x, x1 = (int) rnd(200, 250), mid = walk.frames.w / 2;
   add("hdeerwalk", walk.frames);
   place("hdeerwalk", 0, x0, top_at(ground, walk, x0), {false, 0, 1500});
   HEATH.deer_x = x0;
@@ -274,6 +278,44 @@ inline void life_on_heath(const Scene &s) {
   if (s.heath.nfig >= 3)
     the_dog(s);
   visitors(s);
+}
+
+// What the people, the dog and the visitors take of the panel at most, all at once: a slot and a place each, and
+// pool_bound() of the biggest sprite each can be. The people first: they're the ones counted when there's little.
+inline Share heath_needs(const Scene &s) {
+  Share n{0, 0, 0};
+  auto one = [&](std::initializer_list<HeathKind> kinds) {
+    int most = 0;
+    for (HeathKind k : kinds)
+      most = std::max(most, pool_bound(heath_sprite(s, k).frames));
+    n.slots++;
+    n.places++;
+    n.bytes += most;
+  };
+  if (HeathKind m = heath_mountain(s); m != HK_NONE)
+    one({m});
+  if (HeathKind b = heath_bay(s); b != HK_NONE)
+    one({b});
+  if (s.heath.nfig >= 3)
+    one({HK_DOG_SIT, HK_DOG_TROT, HK_DOG_GALLOP, HK_DOG_SNIFF});
+  if (s.at.light > 0)  // see visitors()
+    one({HK_DEER_WALK, HK_DEER_GRAZE, HK_WALRUS});
+  return n;
+}
+
+// ---- thunder next to them
+
+// The scene's bolt for flash(), nothing in front of it: on the heath it ends on the ridge
+inline void heath_bolt(const Scene &s) {
+  memcpy(SKY.bolt_x, s.bolt_x, sizeof s.bolt_x);
+  memcpy(SKY.bolt_y, s.bolt_y, sizeof s.bolt_y);
+  std::fill(std::begin(SKY.top), std::end(SKY.top), (uint8_t) H);
+}
+
+// The bolt flashes now and then, the rain stays the picture's: its tiles would take every place there is
+inline void heath_thunder(const Scene &s) {
+  heath_bolt(s);
+  sometimes(minutes(3), 40000, flash);
 }
 
 // What it's made of, so it starts again when that changes: who's out, their colours' light, the headlamp, snow,

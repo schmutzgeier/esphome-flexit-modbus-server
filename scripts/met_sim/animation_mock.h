@@ -158,6 +158,7 @@ struct Copy {
   int facing = 0;
   bool mirrored = false;  // by face
   bool flip_x = false, flip_y = false;
+  bool torus = false;  // a drift or wander moved it: on a screen edge, what's over one edge shows at the other
   Wave wave[CHANNELS];
   Map map[CHANNELS];
   int rounds = 0;
@@ -245,6 +246,9 @@ inline Anim *want(const std::string &name) {
       a = &o;
       break;
     }
+  for (auto &o : anims)  // animation.h frees a cleared one's slot at once, the panel fades its copies on its own
+    if (!a && o.cleared)
+      a = &o;
   if (!a) {
     sim::log('W', "anim", "%s: all %d slots taken", name.c_str(), ANIM_SLOTS);
     return nullptr;
@@ -269,12 +273,13 @@ inline Copy *copy_of(const std::string &name, int i) {
 
 inline Anim *slot_for(const std::string &name) { return want(name); }
 
-// Copies on the panel, each in one of its ANIM_PLACES
+// Copies on the panel, each in one of its ANIM_PLACES. One fading out has let go of its place, as animation.h's
+// remove() has it, the panel fades it on its own.
 inline int places_used() {
   int n = 0;
   for (auto &a : anims)
     for (auto &c : a.copies)
-      n += c.used;
+      n += c.used && !c.fading;
   return n;
 }
 
@@ -320,6 +325,8 @@ inline void glide(const std::string &name, int i, const std::string &what, int t
   if (!c || ch < 0)
     return;
   c->glide[ch] = {true, c->base[ch], (float) to, millis(), (uint32_t) ms, ease_of(ease)};
+  if (ch <= Y)
+    c->torus = false;  // the panel's glide can end partly off the screen, and that's all
   if (ch <= TURN)
     c->drift[ch] = 0;
   if (ch <= Y)
@@ -426,8 +433,12 @@ inline void rounds(const std::string &name, int i, int n) {
 
 // ---------------------------------------------------------------- the model
 
+// Times a copy went out at one edge and came back at the other, by animation
+inline std::map<std::string, int> crossed;
+
 // Keeps v to lo..hi as the edge says, turning the velocity round on a bounce. size is the copy's width or height.
-inline void keep(float &v, float &vel, float lo, float hi, float size, int edge) {
+// True when it went out at one edge and comes back at the other.
+inline bool keep(float &v, float &vel, float lo, float hi, float size, int edge) {
   if (edge == 2) {  // bounce
     if (v < lo) {
       v = lo;
@@ -437,16 +448,25 @@ inline void keep(float &v, float &vel, float lo, float hi, float size, int edge)
       vel = -std::fabs(vel);
     }
   } else if (edge == 1) {  // out across one edge, back in at the other
-    if (vel > 0 && v > hi)
+    if (vel > 0 && v > hi) {
       v = lo - size;
-    else if (vel < 0 && v + size < lo)
+      return true;
+    }
+    if (vel < 0 && v + size < lo) {
       v = hi;
+      return true;
+    }
   } else {  // round the screen
-    if (v > hi)
+    if (v > hi) {
       v -= hi - lo + size;
-    else if (v + size < lo)
+      return true;
+    }
+    if (v + size < lo) {
       v += hi - lo + size;
+      return true;
+    }
   }
+  return false;
 }
 
 // The wave's value now
@@ -514,13 +534,15 @@ inline void step(uint32_t dt) {
         }
         c.base[X] += wd.vx * speed * s;
         c.base[Y] += wd.vy * speed * s;
-        keep(c.base[X], wd.vx, x0, x1, w, c.ex);
+        c.torus = true;
+        crossed[a.name] += keep(c.base[X], wd.vx, x0, x1, w, c.ex);
         keep(c.base[Y], wd.vy, y0, y1, h, c.ey);
       }
       if (c.drift[X] || c.drift[Y]) {
         c.base[X] += c.drift[X] * speed * s;
         c.base[Y] += c.drift[Y] * speed * s;
-        keep(c.base[X], c.drift[X], x0, x1, w, c.ex);
+        c.torus = true;
+        crossed[a.name] += keep(c.base[X], c.drift[X], x0, x1, w, c.ex);
         keep(c.base[Y], c.drift[Y], y0, y1, h, c.ey);
       }
       c.base[TURN] += c.drift[TURN] * s;
@@ -544,6 +566,9 @@ inline void step(uint32_t dt) {
       a = Anim();
   }
 }
+
+// Pixels drawn round the screen's edge by animation, the part of a copy past one edge showing at the other
+inline std::map<std::string, int> wrapped;
 
 // Draws every copy over rgb, W x H of 0xRRGGBB
 inline void draw(uint32_t *rgb, int W, int H) {
@@ -592,8 +617,9 @@ inline void draw(uint32_t *rgb, int W, int H) {
       float ct = cosf(turn), st = sinf(turn), hw = a.src.w / 2.0f, hh = a.src.h / 2.0f;
       bool fx = c.flip_x != c.mirrored, fy = c.flip_y;
       int r = (int) ceilf(std::hypot(hw, hh) * size) + 1;
-      // each wrap of the screen
-      for (int wrap = -1; wrap <= 1; wrap++)
+      // each wrap of the screen, once a drift or wander has it going round it
+      int wraps = c.torus && (!c.area || c.ex == 0) ? 1 : 0;
+      for (int wrap = -wraps; wrap <= wraps; wrap++)
         for (int y = (int) my - r; y <= (int) my + r; y++) {
           if (y < 0 || y >= H)
             continue;
@@ -613,6 +639,8 @@ inline void draw(uint32_t *rgb, int W, int H) {
             uint32_t p = px[(size_t) iy * a.src.w + ix];
             if (p >> 24 < 128)
               continue;
+            if (wrap)
+              wrapped[a.name]++;
             uint32_t &d = rgb[(size_t) y * W + sx0];
             auto ch = [&](int sh) {
               float b = (float) (d >> sh & 255), t = (float) (p >> sh & 255);
@@ -650,11 +678,33 @@ inline int slots_used(size_t *bytes = nullptr) {
   return n;
 }
 
+// Where each animation's copies were, a look a frame: how often, the sum of their middles' x, and how often they
+// were within 16 px of the screen's left or right edge or past it
+struct Where {
+  int n = 0, edge = 0;
+  double x = 0;
+};
+inline std::map<std::string, Where> where;
+inline void look() {
+  for (Anim &a : anims)
+    for (Copy &c : a.copies)
+      if (!a.name.empty() && c.used && !c.fading) {
+        Where &w = where[a.name];
+        float l = c.base[X], r = l + a.src.w;
+        w.n++;
+        w.x += (l + r) / 2;
+        w.edge += l < 16 || r > 320 - 16;
+      }
+}
+
 // Everything off, for the next picture
 inline void reset() {
   for (Anim &a : anims)
     a = Anim();
   sources.clear();
+  wrapped.clear();
+  crossed.clear();
+  where.clear();
 }
 
 }  // namespace flexit::panel::anim

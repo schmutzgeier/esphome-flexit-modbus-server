@@ -273,7 +273,7 @@ static bool failed;
 static void costs(const Case &c, const Args &a) {
   namespace anim = flexit::panel::anim;
   for (int i = 0; i < live::NSHOWS; i++) {
-    if (!live::SHOWS[i].fits(scene) || live::SHOWS[i].start == live::life_on_heath)
+    if (!live::SHOWS[i].fits(scene) || live::SHOWS[i].start == live::heath_show)
       continue;
     live::stop();
     anim::reset();
@@ -362,6 +362,7 @@ static void run(const Case &c, const Args &a) {
       write_ppm(dir + f, rgb);
       next += (uint32_t) every;
       most = std::max(most, flexit::panel::anim::copies_shown());
+      flexit::panel::anim::look();
       size_t b = 0;
       slots = std::max(slots, flexit::panel::anim::slots_used(&b));
       bytes = std::max(bytes, b);
@@ -372,6 +373,15 @@ static void run(const Case &c, const Args &a) {
   fclose(f);
   printf("%-26s %d s of animation, up to %d copies, %d of %d slots and %zu bytes of frames at a time\n", "",
          a.seconds, most, slots, ANIM_SLOTS, bytes);
+  for (auto &[name, px] : flexit::panel::anim::wrapped)
+    printf("%-26s %s drawn round the screen's edge, %d px\n", "", name.c_str(), px);
+  if (sim::verbose)
+    for (auto &[name, w] : flexit::panel::anim::where)
+      printf("%-26s %s: its middle at x %.0f on average, at the screen's edge %d%% of the time\n", "", name.c_str(),
+             w.x / w.n, 100 * w.edge / w.n);
+  for (auto &[name, n] : flexit::panel::anim::crossed)
+    if (n)
+      printf("%-26s %s out at one edge and back at the other %d times\n", "", name.c_str(), n);
 }
 
 int main(int argc, char **argv) {

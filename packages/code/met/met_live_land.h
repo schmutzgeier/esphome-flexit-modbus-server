@@ -490,14 +490,15 @@ inline void butterflies(const Scene &s) {
 }
 
 // Leaf i lies on the grass at x, y, and a gust now and then tumbles it along, low, in rows top to bot. 3 and 4
-// fell, and take the falling one's place.
+// fell, and take the falling one's place. One blown off the screen is a while out of sight before another blows in
+// from the other side.
 inline void leaf_lies(int i, int x, int y, int top, int bot, int heading) {
   if (i > 2)
     swap("leaffall", i, "leaf", x, y, true);
   else
     place("leaf", i, x, y, {true});
   int roll = ms_of("leaf", 0, 8), lie = ms_of("leaf", 8);  // its 8 tumbling frames, then lying
-  area("leaf", i, -6, top, W + 6, bot, "cross", "bounce");
+  area("leaf", i, -120, top, W + 120, bot, "cross", "bounce");
   wander("leaf", i, 2, 4, heading, 25, roll, roll, lie, lie);
 }
 
