@@ -336,8 +336,9 @@ letters, digits and `_`.
 | `animation.yaml` | `name`, `file` (a GIF), `resize` (64x64 default), `x`, `y` (top left on the 320x240 screen), `scale` (1, or 2 to draw each pixel 2x), `frame_ms` (40 to 2550, the GIF's own timing isn't used), `drift_x`, `drift_y` (pixels per second it drifts, wrapping round the screen seamlessly), `fade_ms` (300, how long copies fade in and out). The panel plays all its animations from 8 KB, up to 6 at a time in up to 8 places, so keep them small: about 64x64 with a few frames, or more frames if little changes between them. Too big at scale 1 and it's made at half size and drawn 2x. `Panel Animation Status` says what's shown and what didn't fit |
 | `met.yaml` | `latitude`, `longitude`, `scene` (heath, hills, coast, mountains, city; heath by default), `aurora` (auto, off, always), `update_interval` (5 min, the forecast and the waves are only fetched again when MET says they expired, one request per check), `redraw_interval`, `name` (weather). `Panel Weather Scene`, `Panel Weather Aurora` and `Panel Weather Forecast` change it from Home Assistant, `Panel Animation Weather` brings it to life |
 
-`met.yaml` draws the sky for the time of day and the next hour's weather from [MET Norway](https://api.met.no)
-(CC BY 4.0), with the wind now and for each forecast hour. The heath scene is the cabin on the heath under the
+`met.yaml` draws the sky for the time of day and the next hour's weather from [MET Norway](https://api.met.no) (CC BY 4.0). The weather right now is also an item, so it can be a dashboard tile, and the cabin's chimney smokes
+when the heater is on. `The forecast hasn't changed (HTTP 304)` in the log is fine, MET has nothing newer yet. When MET is busy or down (HTTP 502, 503) the picture keeps the last forecast and asks again a minute later, then less often, up to every half hour.
+The heath scene is the cabin on the heath under the
 mountain. Someone climbs the mountain, someone paddles the bay
 and the dog waits on the hill by the cabin; when it rains the climber runs the ridge instead, with waves over 2 m or
 wind over 12 m/s the kayaker comes ashore and runs, with snow both are out on skis, and in rain over 4 mm in the hour
@@ -356,16 +357,21 @@ dashboard tile, and the cabin's chimney smokes when the heater is on. The landsc
 `scripts/met_art`, see its README to change it. `The forecast hasn't changed (HTTP 304)` in the log is
 fine, MET has nothing newer yet.
 
+
 `Panel Animation Weather`, on unless you turn it off, adds slow animations that fit the picture, one show at a
 time: gulls over the cabin, rain and snow falling from under the clouds, the aurora glowing, a moose at dusk, the
 sailboat, the town's windows, the lights on the Christmas spruce, fireworks on New Year's Eve, the flag waving on
-flag days and more, some of them by chance now and then. Very seldom something stranger comes by. On the heath,
-whenever someone's outside, its own show comes first, before the days' and the weather's: the climber climbs to the
-ridge, the runner and the skiers go along it and the shore, the kayak paddles about the bay, the dog roams the hill by
-the cabin, and now and then a reindeer walks out of the trees or a walrus swims across the bay; the sheep stay where
-they are. The holidays, the flag, the smoke, the stars and the weather stay still in the picture beside them. Under
-the aurora and New Year's fireworks everyone's in the cabin, and those shows move instead. The picture leaves out
-what they draw. They take the panel's animations, so turn your other ones off with it.
+flag days and more, some of them by chance now and then. Very seldom something stranger comes by. The picture
+leaves out what they draw, and tells the panel what in it is nearer, so they go behind it where they should: the
+sailboat behind the point and the flagpole, a roe deer out of the forest from behind a spruce. Your own animations
+are always in front of all of it. On the heath, whenever someone's outside, its own show comes first, before the
+days' and the weather's: the climber climbs to the ridge, the runner and the skiers go along it and the shore, the
+kayak paddles about the bay, the dog roams the hill by the cabin, and by turns a reindeer walks out of the trees, a
+walrus swims across the bay, a sea eagle dives into it for a fish or two ravens circle over the mountain; the sheep
+stay where they are. Very seldom something stranger takes a turn: what swims or sails comes into the bay, the huldra
+goes behind the cabin into the trees. The holidays, the flag, the smoke, the stars and the weather stay still in the
+picture beside them. Under the aurora and New Year's fireworks everyone's in the cabin, and those shows move instead.
+They take the panel's animations, so turn your other ones off with it.
 
 ### Picture and animation actions
 

@@ -94,7 +94,7 @@ inline const Show SHOWS[] = {
      [](const Scene &s) { return s.ground != G_HEATH && s.cabin && s.puffs; }},
     {"High clouds", L_CIRRUS | L_FLAG, high_clouds, nullptr, high_shapes,
      [](const Scene &s) { return !s.at.dark && has_clouds(s, true) && !has_clouds(s, false) && clouds_fit(s, true); }},
-    {"Drifting clouds", L_CLOUDS | L_BIRDS | L_FLAG, lower_clouds, nullptr, lower_shapes,
+    {"Drifting clouds", L_CLOUDS | L_FLAG, lower_clouds, nullptr, lower_shapes,
      [](const Scene &s) { return !s.at.dark && has_clouds(s, false) && clouds_fit(s, false); }},
     {"Gulls over the cabin", L_BIRDS | L_FLAG, gulls, nullptr, cabin_wind,
      [](const Scene &s) { return s.cabin && !s.at.dark; }},
@@ -154,7 +154,8 @@ inline void apply(const Scene &s) {
     R.rng = seeded((uint32_t) millis());
     ESP_LOGI("met", "Weather animation: %s", SHOWS[i].name);
     SHOWS[i].start(s);
-    rare_start();
+    if (SHOWS[i].live != L_HEATH)  // the heath's visitors bring their own, see met_live_heath.h
+      rare_start();
   } else if (i >= 0 && SHOWS[i].redo) {
     SHOWS[i].redo(s);
   }

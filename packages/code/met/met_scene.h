@@ -68,6 +68,19 @@ enum : uint16_t {
   L_BOAT = 1 << 12,
   L_HEATH = 1 << 13,  // the heath's people, dog, reindeer and walrus
 };
+// How far off things are, for the panel's K_PIC_PART and K_ANIM_DEPTH. The picture's parts are the land's layers,
+// each in front of the animations farther off than it. An animation without a depth is in front of them all.
+enum Depth : uint8_t {
+  D_SKY = 0,        // behind the land
+  D_RIDGE = 20,     // the mountains' far ridge
+  D_FAR = 40,       // the far hills
+  D_SEA = 60,       // the water and what's on it, and the fog over the far hills
+  D_MID = 80,       // the middle hill and its trees, the lighthouse and the town
+  D_MID_ON = 90,    // on the middle hill or the town's road, in front of them
+  D_NEAR = 120,     // the near hill
+  D_NEAR_ON = 130,  // on the near hill, in front of it, behind its trees, the cabin and the pole
+  D_FRONT = 160,    // the near hill's trees, the cabin and the pole
+};
 struct Options {
   Ground ground = G_HILLS;
   Aurora aurora = A_AUTO;  // auto = some clear nights north of 55 degrees
@@ -163,7 +176,20 @@ struct Colours {
       b[c / 64] |= 1ull << (c % 64);
   }
   constexpr bool operator[](int c) const { return b[c / 64] >> (c % 64) & 1; }
+  constexpr Colours operator|(const Colours &o) const {
+    Colours r{};
+    for (size_t i = 0; i < std::size(b); i++)
+      r.b[i] = b[i] | o.b[i];
+    return r;
+  }
 };
+// The slots in cs
+inline constexpr Colours slots_of(std::initializer_list<int> cs) {
+  Colours m{};
+  for (int c : cs)
+    m.set(c);
+  return m;
+}
 
 // Small things that would vanish if their colour went to their surroundings', besides the sprites
 inline constexpr Colours KEY_COLOURS = [] {
@@ -243,7 +269,7 @@ struct Heath {
   bool indoors;        // the three of them behind the big window
   bool lamp;           // the headlamp's on
   int nfig;            // the people: on the mountain and in the kayak, running, or skiing, and the dog
-  uint8_t fig[3];      // met_heath.cpp's FIGURES
+  uint8_t fig[3];      // met_heath.cpp's HEATH_FIGURES
   int nsmoke;          // the chimney's smoke, a wisp nsmoke rows tall
   int16_t smoke_x[48];
   uint8_t smoke_w;
@@ -420,6 +446,37 @@ inline NearTrees near_trees(const Scene &s, int kind) {
     if (s.tree[k].layer == 2 && (kind < 0 || s.tree[k].kind == kind))
       t.i[t.n++] = (uint8_t) k;
   return t;
+}
+
+// The forest's edge on the near hill left of the gap, beside the near spruce nearest it: x the first column clear of
+// the spruce, y its base, tx and top its middle and top row. x -1 if there's none.
+struct Edge {
+  static constexpr int FLOOR = 4;  // rows of the hill under the spruces' bases in front of what walks in the forest
+  int16_t x = -1, y = 0, tx = 0, top = 0;
+  // The left column that has a thing w by h, its bottom row at bottom, all behind the spruce or the floor under it,
+  // -1 if it's too big for it
+  int hide(int w, int h, int bottom) const {
+    int l = tx - w / 2;
+    for (int r = std::min(bottom, (int) y); r > bottom - h; r--)
+      if (r < top || l < tx - spruce_hw(r - top) || l + w - 1 > tx + spruce_hw(r - top))
+        return -1;
+    return l >= 0 && bottom <= y + FLOOR ? l : -1;
+  }
+  // Where it comes out of the forest from and goes back into: behind the spruce, or off the left through the trees
+  int out(int w, int h, int bottom) const {
+    int l = hide(w, h, bottom);
+    return l >= 0 ? l : -w - 2;
+  }
+};
+inline Edge forest_edge(const Scene &s) {
+  Edge e;
+  for (int i : near_trees(s, 0)) {
+    const Tree &t = s.tree[i];
+    int x = t.x + spruce_hw(t.base - t.top) + 1;
+    if (x <= GAP_L + 10 && x > e.x)
+      e = {(int16_t) x, t.base, t.x, t.top};
+  }
+  return e;
 }
 
 // Birch i's crown: its rows from the top, and the leafy one's half width

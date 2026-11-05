@@ -1,9 +1,12 @@
 // Animations on the heath: the person on the mountain climbing, running the ridge or skiing, the kayaker paddling
-// the bay or the runner on the shore, the dog roaming the hill by the cabin, and now and then a reindeer out of the
-// trees or a walrus in the bay. Their frames are met_heath_live.h's. The picture leaves them all out (L_HEATH).
+// the bay or the runner on the shore, the dog roaming the hill by the cabin, and now and then a visitor: a reindeer
+// out of the trees, a walrus in the bay, a sea eagle's catch on it or two ravens over the mountain by turns, and very
+// seldom something rare, see met_live_rare.h. Their frames are met_heath_live.h's. The picture leaves them all out
+// (L_HEATH).
 #pragma once
 #include "met_heath_live.h"
 #include "met_live.h"
+#include "met_live_rare.h"
 
 namespace flexit::panel::met::live {
 
@@ -127,7 +130,7 @@ inline struct HeathShow {
   int dog_x = 0;
   bool dog_right = false;  // facing right, mirrored
   int deer_x = -1;         // where a reindeer is, -1 none
-  bool deer_next = false;  // the visitors take turns
+  int turn = 0;            // the visitors take turns, see VISITORS
 } HEATH;
 
 // The dog in gait at its x, facing right or left. The gait before goes from the panel, so the dog takes one of
@@ -242,7 +245,7 @@ inline uint32_t walrus_swim(const HeathSprite &sp) {
   int x0 = right ? lo : hi, x1 = right ? hi : lo;
   uint32_t ms = (uint32_t) abs(x1 - x0) * 2500;
   add("hwalrus", sp.frames);
-  place("hwalrus", 0, x0, y, {false, 0, 1500});
+  place("hwalrus", 0, x0, y, {false, 0, 1500, D_SEA});
   flip("hwalrus", 0, right, false);  // drawn facing left
   move("hwalrus", 0, x1, y, (int) std::min<uint32_t>(ms, 65000));
   remove_later(ms, "hwalrus", 0, 1500);
@@ -250,14 +253,49 @@ inline uint32_t walrus_swim(const HeathSprite &sp) {
   return ms + 3000;
 }
 
+// Two ravens come in from off one side over the mountain, circle above its ridge a while and go off the other way,
+// along row y. The ms it takes.
+inline uint32_t ravens_fly(int y) {
+  bool left = chance(0.5f);  // where they come in from
+  int x = (int) rnd(90, 200), ms = 15000, stay = (int) minutes(0.3f, 0.6f);
+  in_light("ravens");
+  place("ravens", 0, left ? -34 : W + 4, y, {true});
+  face("ravens", 0);
+  wave("ravens", 0, "x", -36, 36, 14000, 14000, 0, 0, 20, false, "both");
+  wave("ravens", 0, "y", -7, 7, 9000, 9000, 0, 0, 20, false, "both");
+  move("ravens", 0, x, y, ms, "out");
+  move_later((uint32_t) (ms + stay), "ravens", 0, left ? W + 40 : -70, y - 12, ms, "in");
+  uint32_t all = remove_later((uint32_t) (2 * ms + stay), "ravens", 0);
+  later(all + 500, [] { unload("ravens"); });
+  return all + 1000;
+}
+
+// The visitors by turns: the reindeer, the walrus, the sea eagle's catch and the ravens, each one that can come, and
+// now and then something rare in a turn instead, see heath_rare()
+inline constexpr uint32_t VISIT_EVERY = minutes(5);
 inline void visitors(const Scene &s) {
-  bool walrus = s.at.fog <= 45 && s.heath.bft <= 6;
+  bool walrus = s.at.fog <= 45 && s.heath.bft <= 6, ridge_free = heath_mountain(s) == HK_NONE;
+  bool ravens = s.at.sun_el > -6 && s.at.fog <= 45 && !s.at.thunder && s.at.gust < 20;
   HeathSprite walk = heath_sprite(s, HK_DEER_WALK), graze = heath_sprite(s, HK_DEER_GRAZE),
               wal = heath_sprite(s, HK_WALRUS);
   Line ground = under(s, 2, walk);
-  sometimes(minutes(5), minutes(0.5f, 3), [=] {
-    HEATH.deer_next = !HEATH.deer_next || !walrus;
-    return HEATH.deer_next ? deer_visit(walk, graze, ground) : walrus_swim(wal);
+  int top = H;  // the mountain's top, under the forecast
+  for (int x = 60; x < 260; x++)
+    top = std::min<int>(top, s.land->hill[0][x]);
+  int raven_y = std::max(s.overlay ? OV_H + 6 : 10, top - 26);
+  sometimes(VISIT_EVERY, minutes(0.5f, 3), [=] {
+    if (uint32_t ms = heath_rare(VISIT_EVERY, ridge_free))
+      return ms;
+    for (int k = 0; k < 4; k++) {
+      int v = HEATH.turn++ % 4;
+      uint32_t ms = v == 0   ? deer_visit(walk, graze, ground)
+                    : v == 1 ? (walrus ? walrus_swim(wal) : 0)
+                    : v == 2 ? heath_eagle()
+                             : (ravens ? ravens_fly(raven_y) : 0);
+      if (ms)
+        return ms;
+    }
+    return minutes(1);
   });
 }
 
@@ -280,7 +318,8 @@ inline void life_on_heath(const Scene &s) {
 inline uint32_t heath_cast(const Scene &s) {
   return (uint32_t) heath_mountain(s) | (uint32_t) heath_bay(s) << 4 | (uint32_t) s.heath.lamp << 8 |
          (uint32_t) (s.at.dark + (s.at.light < 0.5f) + (s.at.light <= 0)) << 9 | (uint32_t) s.at.white << 11 |
-         (uint32_t) (s.heath.bft >= 3) << 12 | (uint32_t) (s.at.fog <= 45 && s.heath.bft <= 6) << 13;
+         (uint32_t) (s.heath.bft >= 3) << 12 | (uint32_t) (s.at.fog <= 45 && s.heath.bft <= 6) << 13 |
+         (uint32_t) (s.at.sun_el > -6 && s.at.fog <= 45 && !s.at.thunder && s.at.gust < 20) << 14;
 }
 
 }  // namespace flexit::panel::met::live

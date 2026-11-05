@@ -81,7 +81,7 @@ inline void add(const std::string &name, Source s) { sources[name] = std::move(s
 
 enum Phase { IDLE, COUNT, MAKE, SEND };
 struct Work {
-  Phase phase = COUNT;  // so met_live.h keeps the frame it drew
+  Phase phase = IDLE;  // each animation is sent at once, and the encounters find the link free
 };
 inline Work W;
 
@@ -164,6 +164,7 @@ struct Copy {
   int rounds = 0;
   uint32_t rounds_end = 0;
   float px = 0, py = 0;  // where it was a step ago, for face
+  uint8_t depth = ANIM_NEAREST;  // K_ANIM_DEPTH's: behind the picture's parts nearer than it
 };
 
 enum State { WANT, SENT, FAILED };
@@ -283,14 +284,15 @@ inline int places_used() {
   return n;
 }
 
-inline void place(const std::string &name, int i, int x, int y, bool own, int start, int fade = -1) {
+inline bool place(const std::string &name, int i, int x, int y, bool own, int start, int fade = -1,
+                  uint8_t depth = ANIM_NEAREST, int = -1) {
   Anim *a = want(name);
   if (!a || i < 0 || i >= ANIM_PLACES)
-    return;
+    return false;
   Copy &c = a->copies[i];
   if (!c.used && places_used() >= ANIM_PLACES) {
     sim::log('W', "anim", "%s: all %d places taken", name.c_str(), ANIM_PLACES);
-    return;
+    return false;
   }
   c = Copy();
   c.used = true;
@@ -300,6 +302,15 @@ inline void place(const std::string &name, int i, int x, int y, bool own, int st
   c.start = start;
   c.placed = millis();
   c.fade_in = fade >= 0 ? fade : a->src.fade_ms;
+  c.depth = depth;
+  return true;
+}
+// Copy i of name and its animation, nulls if it isn't shown
+inline std::pair<Anim *, Copy *> copy_for(const std::string &name, int i) {
+  Anim *a = find(name);
+  if (a && i >= 0 && i < ANIM_PLACES && a->copies[i].used && !a->copies[i].fading)
+    return {a, &a->copies[i]};
+  return {};
 }
 inline void fade_out(Anim &a, Copy &c, int fade) {
   c.fading = true;
@@ -310,6 +321,18 @@ inline void remove(const std::string &name, int i, int fade = -1) {
   Anim *a = find(name);
   if (a && i >= 0 && i < ANIM_PLACES && a->copies[i].used && !a->copies[i].fading)
     fade_out(*a, a->copies[i], fade);
+}
+inline void depth(const std::string &name, int i, uint8_t d) {
+  if (Copy *c = copy_for(name, i).second)
+    c->depth = d;
+}
+// Copy i of from becomes copy i of to at x, y, at its depth, with nothing between them
+inline void swap(const std::string &from, int i, const std::string &to, int x, int y, bool own, int start) {
+  Copy *c = copy_for(from, i).second;
+  uint8_t d = c ? c->depth : ANIM_NEAREST;
+  if (c)
+    *c = Copy();
+  place(to, i, x, y, own, start, 0, d);
 }
 inline void clear(const std::string &name) {
   if (Anim *a = find(name)) {
@@ -570,6 +593,25 @@ inline void step(uint32_t dt) {
 // Pixels drawn round the screen's edge by animation, the part of a copy past one edge showing at the other
 inline std::map<std::string, int> wrapped;
 
+// The picture's parts, K_PIC_PART's, and its palette index at each pixel, for draw(): a copy is behind a part
+// nearer than it where the picture has one of the part's colours. Set by met_sim.
+struct PicPart {
+  int x0, y0, x1, y1;
+  uint16_t colours;
+  uint8_t depth;
+};
+inline std::vector<PicPart> pic_parts;
+inline std::vector<uint8_t> pic_index;
+inline bool hidden(int x, int y, int W, uint8_t depth) {
+  if (pic_index.empty())
+    return false;
+  uint8_t i = pic_index[(size_t) y * W + x];
+  for (const PicPart &p : pic_parts)
+    if (p.depth > depth && x >= p.x0 && x < p.x1 && y >= p.y0 && y < p.y1 && (p.colours >> i & 1))
+      return true;
+  return false;
+}
+
 // Draws every copy over rgb, W x H of 0xRRGGBB
 inline void draw(uint32_t *rgb, int W, int H) {
   uint32_t now = millis();
@@ -637,7 +679,7 @@ inline void draw(uint32_t *rgb, int W, int H) {
             if (fy)
               iy = a.src.h - 1 - iy;
             uint32_t p = px[(size_t) iy * a.src.w + ix];
-            if (p >> 24 < 128)
+            if (p >> 24 < 128 || hidden(sx0, y, W, c.depth))
               continue;
             if (wrap)
               wrapped[a.name]++;

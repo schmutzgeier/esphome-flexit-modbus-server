@@ -11,7 +11,7 @@ src=$build/src
 rm -rf "$src" "$build"/out
 mkdir -p "$src/met" "$src/panel" "$build/out"
 cp "$root"/packages/code/met/*.h "$root"/packages/code/met/*.cpp "$src/met/"
-cp "$root/packages/code/panel/rgb.h" "$root/packages/code/panel/plink_keys.h" "$src/panel/"
+cp "$root"/packages/code/panel/*.h "$src/panel/"  # picture_plan.h for the picture's parts, and what it needs
 cp "$root/scripts/met_sim/animation_mock.h" "$src/panel/animation.h"
 g++ -std=gnu++20 -O2 -Wall -Wextra -Wno-unused-parameter -I"$src/met" "$root/scripts/met_sim/met_sim.cpp" \
   "$src"/met/met_scene.cpp "$src"/met/met_raster.cpp "$src"/met/met_heath.cpp "$src"/met/met_forecast.cpp \

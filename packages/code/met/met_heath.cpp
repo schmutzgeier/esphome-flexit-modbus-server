@@ -182,9 +182,9 @@ static int buhund_at(int p, int x, int y) {
 }
 
 enum Fig : uint8_t { F_CLIMBER, F_RUNNER, F_SKIER_CLIMBER, F_KAYAKER, F_RUNNER_KAYAKER, F_SKIER_KAYAKER, F_DOG };
-static const art::Figure *const FIGURES[] = {&art::CLIMBER, &art::RUNNER,         &art::SKIER_CLIMBER,
-                                             &art::KAYAKER, &art::RUNNER_KAYAKER, &art::SKIER_KAYAKER,
-                                             &art::DOG};  // the dog's place; it's drawn as BUHUND
+static const art::Figure *const HEATH_FIGURES[] = {&art::CLIMBER, &art::RUNNER,         &art::SKIER_CLIMBER,
+                                                   &art::KAYAKER, &art::RUNNER_KAYAKER, &art::SKIER_KAYAKER,
+                                                   &art::DOG};  // the dog's place; it's drawn as BUHUND
 
 // The three of them behind the big window, 7 by 13 from its top left, leftmost pixel in bit 6: someone standing,
 // someone sitting, and the dog's head between them. They keep off its edges so it still reads as a window, and its
@@ -923,7 +923,7 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
     out[s.pole_x] = ix[C_ART + (int) S_BLACK];
   // the people, with the headlamp's glow, in the fog where it's thick enough. The show on the heath has them.
   for (int i = 0; i < h.nfig && !(s.live & L_HEATH); i++) {
-    const Figure &f = *FIGURES[h.fig[i]];
+    const Figure &f = *HEATH_FIGURES[h.fig[i]];
     auto fogged = [&](int x) {
       return (f.depth <= 0 && y >= s.fog_top[0][x]) || (f.depth <= 1 && y >= s.fog_top[1][x]);
     };
@@ -967,11 +967,97 @@ void heath_drawn(const Scene &s, Colours &u) {
   u.set(C_FIG, out);
   bool lamp = false;
   for (int i = 0; i < h.nfig; i++)
-    lamp = lamp || FIGURES[h.fig[i]]->lamp_x >= 0;
+    lamp = lamp || HEATH_FIGURES[h.fig[i]]->lamp_x >= 0;
   u.set(C_LAMP, out && h.lamp && lamp);
   u.set(C_LAMP_GLOW, out && h.lamp && lamp);
   u.set(C_SMOKE, h.nsmoke > 0 && !(s.live & L_SMOKE));
   u.set(C_WHITE, out && h.nfig >= 3);  // the dog's toes
+}
+
+// The artboard's slots in row y, 0 the sky
+static void ground_row(int y, uint8_t *out) {
+  using namespace art;
+  memset(out, S_SKY, W);
+  if (y < GROUND_Y0 || y >= H)
+    return;
+  for (int i = GROUND_ROW[y - GROUND_Y0], x = 0; i < GROUND_ROW[y - GROUND_Y0 + 1]; i += 2)
+    for (int end = x + GROUND[i + 1]; x < end; x++)
+      out[x] = GROUND[i];
+}
+
+int heath_parts(const Scene &s, HeathPart *out) {
+  using namespace art;
+  // Which of them a slot is in: the mountain, the bay, the far land, the near ground, the cabin with its trees
+  enum { MOUNTAIN, BAY, FAR, NEAR, CABIN, N };
+  static HeathPart part[N];
+  static bool made;
+  if (!made) {
+    static constexpr uint8_t DEPTHS[N] = {D_FAR, D_SEA, D_MID, D_NEAR, D_FRONT};
+    for (int c = 0; c < N; c++)
+      part[c] = {W, H, 0, 0, Colours{}, DEPTHS[c]};
+    part[BAY].slots = slots_of({C_CREST, C_FOAM, C_SHINE});  // the waves, the surf and the light on the water
+    auto of = [](int k) {
+      if (k == S_SEA_FAR || k == S_SEA_NEAR)
+        return BAY;
+      if (k == S_BLACK || k == S_CABIN_WALL || k == S_CABIN_TRIM || k == S_WINDOW || k == S_TREE || k == S_BIRCH ||
+          k == S_BIRCH_BARK || k == S_BIRCH_TWIG)
+        return CABIN;
+      return DEPTH[k] == 0 ? MOUNTAIN : DEPTH[k] == 1 ? FAR : NEAR;
+    };
+    uint8_t px[W];
+    for (int y = GROUND_Y0; y < H; y++) {
+      ground_row(y, px);
+      for (int x = 0; x < W; x++)
+        if (px[x] != S_SKY) {
+          HeathPart &p = part[of(px[x])];
+          p.x0 = (int16_t) std::min<int>(p.x0, x);
+          p.y0 = (int16_t) std::min<int>(p.y0, y);
+          p.x1 = (int16_t) std::max<int>(p.x1, x + 1);
+          p.y1 = (int16_t) std::max<int>(p.y1, y + 1);
+          p.slots.set(C_ART + px[x]);
+        }
+    }
+    made = true;
+  }
+  int n = 0;
+  for (const HeathPart &p : part)
+    out[n++] = p;
+  if (s.pole_x >= 0)
+    out[n++] = {(int16_t) s.pole_x,
+                s.pole_top,
+                (int16_t) (s.pole_x + 1),
+                (int16_t) (s.pole_base + 1),
+                slots_of({C_ART + (int) S_BLACK}),
+                D_FRONT};
+  return n;
+}
+
+bool heath_open_water(int min, int &l, int &r, int &y) {
+  using namespace art;
+  // No nearer than the front of the bay where the walrus swims, so nothing on it looks bigger than the kayak, and
+  // well clear of the wave height
+  constexpr int NEAREST = 205, FARTHEST = BAY_Y + 9;
+  uint8_t px[W], open[W];
+  for (y = NEAREST; y >= FARTHEST; y--) {
+    memset(open, 1, W);
+    for (int k = y - 8; k <= y + 2; k++) {
+      ground_row(k, px);
+      for (int x = 0; x < W; x++)
+        open[x] &= px[x] == S_SEA_FAR || px[x] == S_SEA_NEAR;
+    }
+    for (int x = 0; x < W; x++) {
+      int e = x;
+      while (e < W && open[e])
+        e++;
+      if (e - x >= min) {
+        l = x;
+        r = e - 1;
+        return true;
+      }
+      x = e;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- the characters for the show

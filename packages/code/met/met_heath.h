@@ -40,6 +40,19 @@ void heath_moon_row(const Scene &s, int y, uint8_t *out);
 void heath_row(const Scene &s, int y, uint8_t *out);
 // The heath's colour slots row() may draw
 void heath_drawn(const Scene &s, Colours &u);
+// The heath's land as the picture's parts, farthest first: the mountain, the bay, the far land and the near ground,
+// each in front of the animations farther off than it, then the cabin with the spruce and the birch, and the pole on
+// flag days, in front of what walks on the near ground. Each its box and its slots. How many, at most HEATH_PARTS.
+struct HeathPart {
+  int16_t x0, y0, x1, y1;  // x1 and y1 just past it
+  Colours slots;
+  uint8_t depth;  // a Depth
+};
+inline constexpr int HEATH_PARTS = 6;
+int heath_parts(const Scene &s, HeathPart *out);
+// The open water in the bay for what swims or sails on it: columns l to r along row y, open from 8 rows above it to
+// 2 under, the nearest such row with at least min px of it above the wave height. False if there's none.
+bool heath_open_water(int min, int &l, int &r, int &y);
 
 // ---- for met.h
 

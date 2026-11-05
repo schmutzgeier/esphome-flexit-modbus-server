@@ -3,9 +3,11 @@
 // it, run on animation_mock.h's model of the panel. Writes each case's picture and the frames of its animation as
 // PPMs to OUT/<case>/, which render.py turns into PNGs, GIFs and a contact sheet. See run.sh.
 // --check runs each heath case for check_minutes without frames and checks that the kayak keeps to the water and
-// the dog's feet to the ground.
+// the dog's feet to the ground. --rare brings the rare encounter whose name has text two seconds in, whatever the
+// odds and whether or not it fits. --turn has the heath's visitors start at that turn: 0 the reindeer, 1 the
+// walrus, 2 the sea eagle, 3 the ravens.
 //   met_sim OUT [--only text] [--seconds 40] [--fps 10] [--no-anim] [--real-timers] [--check] [--lat 60.39
-//   --lon 5.32] [-v]
+//   --lon 5.32] [--rare text] [--turn n] [-v]
 #include <sys/stat.h>
 #include <cstdio>
 #include <cstdlib>
@@ -110,6 +112,8 @@ struct Args {
   int seconds = 40, fps = 10;
   bool anim = true, real_timers = false, check = false, costs = false;
   int check_minutes = 20;
+  std::string rare;  // an encounter to bring, see --rare
+  int turn = -1;     // the heath's visitor to start with
   double lat = 60.39, lon = 5.32;  // Bergen
 };
 
@@ -149,11 +153,19 @@ static void draw(const Case &c, const Args &a, Options &o, const uint32_t *prev)
 
 static void picture(uint32_t *rgb) {
   uint8_t r[W];
+  auto &ix = flexit::panel::anim::pic_index;
+  ix.assign((size_t) W * H, 0);
   for (int y = 0; y < H; y++) {
     row(scene, y, r);
-    for (int x = 0; x < W; x++)
+    for (int x = 0; x < W; x++) {
       rgb[y * W + x] = scene.pal[r[x]];
+      ix[(size_t) y * W + x] = r[x];
+    }
   }
+  flexit::panel::anim::pic_parts.clear();
+  for (const auto &p : parts_of(scene))
+    if (p.colours && p.x0 < p.x1 && p.y0 < p.y1)
+      flexit::panel::anim::pic_parts.push_back({p.x0, p.y0, p.x1, p.y1, p.colours, p.depth});
 }
 
 // How many colours the picture has and its size packed for the panel, as picture.h packs it
@@ -328,6 +340,19 @@ static void run(const Case &c, const Args &a) {
   draw(c, a, o, pal);
   int show = live::pick(scene);
   live::apply(scene);
+  if (a.turn >= 0)
+    live::HEATH.turn = a.turn;
+  if (!a.rare.empty())
+    live::later(2000, [r = a.rare] {
+      for (int k = 0; k < live::NRARE; k++)
+        if (strstr(live::RARE[k].name, r.c_str())) {
+          bool fits = live::RARE[k].fits(live::SEEN), on = live::encounter(k, false);
+          printf("%-26s %s: %s%s\n", "", live::RARE[k].name, on ? "on" : "no room",
+                 fits ? "" : ", though it doesn't fit the picture now");
+          return;
+        }
+      printf("no encounter called %s\n", r.c_str());
+    });
   if (!a.real_timers)  // what happens by chance happens soon, one after the other, so a short run shows it
     for (size_t i = 0, k = 0; i < live::R.timers.size(); i++)
       if (live::R.timers[i].mean)
@@ -405,6 +430,10 @@ int main(int argc, char **argv) {
       a.lat = atof(next());
     else if (s == "--lon")
       a.lon = atof(next());
+    else if (s == "--rare")
+      a.rare = next();
+    else if (s == "--turn")
+      a.turn = atoi(next());
     else if (s == "--check")
       a.check = true;
     else if (s == "--costs")
@@ -419,7 +448,7 @@ int main(int argc, char **argv) {
       a.out = s;
     else {
       fprintf(stderr, "met_sim OUT [--only text] [--seconds 40] [--fps 10] [--no-anim] [--real-timers] [--lat --lon] "
-                      "[--list] [-v]\n");
+                      "[--rare text] [--turn n] [--list] [-v]\n");
       return 2;
     }
   }
