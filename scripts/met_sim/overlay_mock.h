@@ -1,6 +1,6 @@
-// Stands in for packages/code/panel/animation.h when met_sim builds the weather animations on a PC: the ESP's side
+// Stands in for packages/code/panel/overlay.h when met_sim builds the weather animations on a PC: the ESP's side
 // of the link becomes a small model of what the panel does with an animation's copies, after plink_keys.h's
-// K_ANIM_* (place, glide, drift, wander, face, flip, wave, map, rounds, fades), on a clock of its own. It also gives
+// K_OVERLAY_* (place, glide, drift, wander, face, flip, wave, map, rounds, fades), on a clock of its own. It also gives
 // the little of ESPHome that met_live*.h use: millis(), the logs, the time and picture::has_ram().
 #pragma once
 #include <algorithm>
@@ -16,7 +16,7 @@
 #include <random>
 #include <string>
 #include <vector>
-#include "plink_keys.h"  // the panel's ANIM_* limits, copied next to it by run.sh
+#include "plink_keys.h"  // the panel's OVERLAY_* limits, copied next to it by run.sh
 
 // ---------------------------------------------------------------- ESPHome's
 
@@ -66,7 +66,7 @@ inline bool has_ram(size_t, size_t) { return true; }
 
 // ---------------------------------------------------------------- the panel's animations
 
-namespace flexit::panel::anim {
+namespace flexit::panel::overlay {
 
 struct Source {
   int w, h, frames, frame_ms, x, y, scale;
@@ -164,19 +164,19 @@ struct Copy {
   int rounds = 0;
   uint32_t rounds_end = 0;
   float px = 0, py = 0;  // where it was a step ago, for face
-  uint8_t depth = ANIM_NEAREST;  // K_ANIM_DEPTH's: behind the picture's parts nearer than it
+  uint8_t depth = OVERLAY_NEAREST;  // K_OVERLAY_DEPTH's: behind the picture's parts nearer than it
 };
 
 enum State { WANT, SENT, FAILED };
 
-// A slot on the panel, ANIM_SLOTS of them. It's sent at once here, or FAILED when its frame doesn't fit ANIM_POOL.
-struct Anim {
+// A slot on the panel, OVERLAY_SLOTS of them. It's sent at once here, or FAILED when its frame doesn't fit OVERLAY_POOL.
+struct Overlay {
   std::string name;  // "" = free slot
   Source src;
   uint32_t t0 = 0;
   bool cleared = false;
   int state = WANT;
-  std::array<Copy, ANIM_PLACES> copies;
+  std::array<Copy, OVERLAY_PLACES> copies;
   size_t frame_bytes() const { return (size_t) src.w / 2 * src.h; }
   // The records' bytes: not modelled, they depend on how well pdeflate packs the frames. The shows budget for them
   // themselves, see met_live_sky.h's SKY_POOL.
@@ -211,19 +211,19 @@ struct Anim {
     return 0;
   }
 };
-inline Anim anims[ANIM_SLOTS];
+inline Overlay overlays[OVERLAY_SLOTS];
 
-inline Anim *find(const std::string &name) {
-  for (auto &a : anims)
+inline Overlay *find(const std::string &name) {
+  for (auto &a : overlays)
     if (!a.name.empty() && a.name == name && !a.cleared)
       return &a;
   return nullptr;
 }
 
-// Bytes of ANIM_POOL the animations on the panel take, with their copies' own frames, other than a's
-inline size_t used_by_others(const Anim *a) {
+// Bytes of OVERLAY_POOL the animations on the panel take, with their copies' own frames, other than a's
+inline size_t used_by_others(const Overlay *a) {
   size_t n = 0;
-  for (auto &o : anims) {
+  for (auto &o : overlays) {
     if (&o == a || o.name.empty() || o.state != SENT)
       continue;
     n += o.frame_bytes() + o.data_bytes();
@@ -233,65 +233,65 @@ inline size_t used_by_others(const Anim *a) {
   return n;
 }
 
-// The slot of name, taking a free one: null when all ANIM_SLOTS are taken. One that doesn't fit the pool next to
+// The slot of name, taking a free one: null when all OVERLAY_SLOTS are taken. One that doesn't fit the pool next to
 // the others is FAILED, as the panel's PIC_TOO_BIG would have it.
-inline Anim *want(const std::string &name) {
-  if (Anim *a = find(name))
+inline Overlay *want(const std::string &name) {
+  if (Overlay *a = find(name))
     return a->state == FAILED ? nullptr : a;
   auto s = sources.find(name);
   if (s == sources.end())
     return nullptr;
-  Anim *a = nullptr;
-  for (auto &o : anims)
+  Overlay *a = nullptr;
+  for (auto &o : overlays)
     if (o.name.empty()) {
       a = &o;
       break;
     }
-  for (auto &o : anims)  // animation.h frees a cleared one's slot at once, the panel fades its copies on its own
+  for (auto &o : overlays)  // overlay.h frees a cleared one's slot at once, the panel fades its copies on its own
     if (!a && o.cleared)
       a = &o;
   if (!a) {
-    sim::log('W', "anim", "%s: all %d slots taken", name.c_str(), ANIM_SLOTS);
+    sim::log('W', "anim", "%s: all %d slots taken", name.c_str(), OVERLAY_SLOTS);
     return nullptr;
   }
-  *a = Anim();
+  *a = Overlay();
   a->name = name;
   a->src = s->second;
   a->t0 = millis();
   size_t need = a->frame_bytes() + a->data_bytes(), used = used_by_others(a);
-  a->state = used + need <= ANIM_POOL ? SENT : FAILED;
+  a->state = used + need <= OVERLAY_POOL ? SENT : FAILED;
   if (a->state == FAILED) {
     sim::log('W', "anim", "%s: %zu bytes don't fit next to the others' %zu of %d", name.c_str(), need, used,
-             ANIM_POOL);
+             OVERLAY_POOL);
     return nullptr;
   }
   return a;
 }
 inline Copy *copy_of(const std::string &name, int i) {
-  Anim *a = find(name);
-  return a && i >= 0 && i < ANIM_PLACES && a->copies[i].used && !a->copies[i].fading ? &a->copies[i] : nullptr;
+  Overlay *a = find(name);
+  return a && i >= 0 && i < OVERLAY_PLACES && a->copies[i].used && !a->copies[i].fading ? &a->copies[i] : nullptr;
 }
 
-inline Anim *slot_for(const std::string &name) { return want(name); }
+inline Overlay *slot_for(const std::string &name) { return want(name); }
 
-// Copies on the panel, each in one of its ANIM_PLACES. One fading out has let go of its place, as animation.h's
+// Copies on the panel, each in one of its OVERLAY_PLACES. One fading out has let go of its place, as overlay.h's
 // remove() has it, the panel fades it on its own.
 inline int places_used() {
   int n = 0;
-  for (auto &a : anims)
+  for (auto &a : overlays)
     for (auto &c : a.copies)
       n += c.used && !c.fading;
   return n;
 }
 
 inline bool place(const std::string &name, int i, int x, int y, bool own, int start, int fade = -1,
-                  uint8_t depth = ANIM_NEAREST, int = -1) {
-  Anim *a = want(name);
-  if (!a || i < 0 || i >= ANIM_PLACES)
+                  uint8_t depth = OVERLAY_NEAREST, int = -1) {
+  Overlay *a = want(name);
+  if (!a || i < 0 || i >= OVERLAY_PLACES)
     return false;
   Copy &c = a->copies[i];
-  if (!c.used && places_used() >= ANIM_PLACES) {
-    sim::log('W', "anim", "%s: all %d places taken", name.c_str(), ANIM_PLACES);
+  if (!c.used && places_used() >= OVERLAY_PLACES) {
+    sim::log('W', "anim", "%s: all %d places taken", name.c_str(), OVERLAY_PLACES);
     return false;
   }
   c = Copy();
@@ -306,20 +306,20 @@ inline bool place(const std::string &name, int i, int x, int y, bool own, int st
   return true;
 }
 // Copy i of name and its animation, nulls if it isn't shown
-inline std::pair<Anim *, Copy *> copy_for(const std::string &name, int i) {
-  Anim *a = find(name);
-  if (a && i >= 0 && i < ANIM_PLACES && a->copies[i].used && !a->copies[i].fading)
+inline std::pair<Overlay *, Copy *> copy_for(const std::string &name, int i) {
+  Overlay *a = find(name);
+  if (a && i >= 0 && i < OVERLAY_PLACES && a->copies[i].used && !a->copies[i].fading)
     return {a, &a->copies[i]};
   return {};
 }
-inline void fade_out(Anim &a, Copy &c, int fade) {
+inline void fade_out(Overlay &a, Copy &c, int fade) {
   c.fading = true;
   c.fade_t0 = millis();
   c.fade_ms = fade >= 0 ? fade : a.src.fade_ms;
 }
 inline void remove(const std::string &name, int i, int fade = -1) {
-  Anim *a = find(name);
-  if (a && i >= 0 && i < ANIM_PLACES && a->copies[i].used && !a->copies[i].fading)
+  Overlay *a = find(name);
+  if (a && i >= 0 && i < OVERLAY_PLACES && a->copies[i].used && !a->copies[i].fading)
     fade_out(*a, a->copies[i], fade);
 }
 inline void depth(const std::string &name, int i, uint8_t d) {
@@ -329,13 +329,13 @@ inline void depth(const std::string &name, int i, uint8_t d) {
 // Copy i of from becomes copy i of to at x, y, at its depth, with nothing between them
 inline void swap(const std::string &from, int i, const std::string &to, int x, int y, bool own, int start) {
   Copy *c = copy_for(from, i).second;
-  uint8_t d = c ? c->depth : ANIM_NEAREST;
+  uint8_t d = c ? c->depth : OVERLAY_NEAREST;
   if (c)
     *c = Copy();
   place(to, i, x, y, own, start, 0, d);
 }
 inline void clear(const std::string &name) {
-  if (Anim *a = find(name)) {
+  if (Overlay *a = find(name)) {
     for (Copy &c : a->copies)
       if (c.used && !c.fading)
         fade_out(*a, c, -1);
@@ -445,7 +445,7 @@ inline void map(const std::string &name, int i, const std::string &what, int l, 
     c->map[ch] = {true, l, r, t, b};
 }
 inline void rounds(const std::string &name, int i, int n) {
-  Anim *a = find(name);
+  Overlay *a = find(name);
   Copy *c = copy_of(name, i);
   if (!a || !c || n <= 0)
     return;
@@ -515,7 +515,7 @@ inline float wave_value(Wave &v) {
 inline void step(uint32_t dt) {
   uint32_t now = millis();
   float s = dt / 1000.0f;
-  for (Anim &a : anims) {
+  for (Overlay &a : overlays) {
     if (a.name.empty())
       continue;
     for (Copy &c : a.copies) {
@@ -579,14 +579,14 @@ inline void step(uint32_t dt) {
       c.py = c.base[Y];
     }
   }
-  for (Anim &a : anims) {  // a cleared one lets go of its slot once its copies have faded
+  for (Overlay &a : overlays) {  // a cleared one lets go of its slot once its copies have faded
     if (a.name.empty() || !(a.cleared || a.state == FAILED))
       continue;
     bool any = false;
     for (Copy &c : a.copies)
       any |= c.used;
     if (!any)
-      a = Anim();
+      a = Overlay();
   }
 }
 
@@ -615,7 +615,7 @@ inline bool hidden(int x, int y, int W, uint8_t depth) {
 // Draws every copy over rgb, W x H of 0xRRGGBB
 inline void draw(uint32_t *rgb, int W, int H) {
   uint32_t now = millis();
-  for (Anim &a : anims) {
+  for (Overlay &a : overlays) {
     if (a.name.empty())
       continue;
     for (Copy &c : a.copies) {
@@ -698,7 +698,7 @@ inline void draw(uint32_t *rgb, int W, int H) {
 // Copies on the panel now, and how many animations they're of
 inline int copies_shown(int *n_anims = nullptr) {
   int n = 0, k = 0;
-  for (auto &a : anims) {
+  for (auto &a : overlays) {
     int m = 0;
     for (Copy &c : a.copies)
       m += c.used;
@@ -710,10 +710,10 @@ inline int copies_shown(int *n_anims = nullptr) {
   return n;
 }
 
-// Slots taken now, and the bytes of ANIM_POOL their frames take
+// Slots taken now, and the bytes of OVERLAY_POOL their frames take
 inline int slots_used(size_t *bytes = nullptr) {
   int n = 0;
-  for (auto &a : anims)
+  for (auto &a : overlays)
     n += !a.name.empty() && a.state == SENT;
   if (bytes)
     *bytes = used_by_others(nullptr);
@@ -728,7 +728,7 @@ struct Where {
 };
 inline std::map<std::string, Where> where;
 inline void look() {
-  for (Anim &a : anims)
+  for (Overlay &a : overlays)
     for (Copy &c : a.copies)
       if (!a.name.empty() && c.used && !c.fading) {
         Where &w = where[a.name];
@@ -741,12 +741,12 @@ inline void look() {
 
 // Everything off, for the next picture
 inline void reset() {
-  for (Anim &a : anims)
-    a = Anim();
+  for (Overlay &a : overlays)
+    a = Overlay();
   sources.clear();
   wrapped.clear();
   crossed.clear();
   where.clear();
 }
 
-}  // namespace flexit::panel::anim
+}  // namespace flexit::panel::overlay

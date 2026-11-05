@@ -1,6 +1,6 @@
 // Draws the weather picture of packages/code/met for mocked weathers, wave heights, places, landscapes and days,
 // as met.h makes it: build(), what the animations leave out, palette(), the heath's fit, then the show that fits
-// it, run on animation_mock.h's model of the panel. Writes each case's picture and the frames of its animation as
+// it, run on overlay_mock.h's model of the panel. Writes each case's picture and the frames of its animation as
 // PPMs to OUT/<case>/, which render.py turns into PNGs, GIFs and a contact sheet. See run.sh.
 // --check runs each heath case for check_minutes without frames and checks that the kayak keeps to the water and
 // the dog's feet to the ground. --rare brings the rare encounter whose name has text two seconds in, whatever the
@@ -19,6 +19,8 @@
 #include "met_live_shows.h"
 #include "met_raster.h"
 
+using flexit::panel::civil_from_days;
+using flexit::panel::unix_of;
 using namespace flexit::panel::met;
 
 // Norway's UTC offset: CEST from 01:00 UTC on the last Sunday in March to the same in October
@@ -154,7 +156,7 @@ static void draw(const Case &c, const Args &a, Options &o, const uint32_t *prev)
 
 static void picture(uint32_t *rgb) {
   uint8_t r[W];
-  auto &ix = flexit::panel::anim::pic_index;
+  auto &ix = flexit::panel::overlay::pic_index;
   ix.assign((size_t) W * H, 0);
   for (int y = 0; y < H; y++) {
     row(scene, y, r);
@@ -163,10 +165,10 @@ static void picture(uint32_t *rgb) {
       ix[(size_t) y * W + x] = r[x];
     }
   }
-  flexit::panel::anim::pic_parts.clear();
+  flexit::panel::overlay::pic_parts.clear();
   for (const auto &p : parts_of(scene))
     if (p.colours && p.x0 < p.x1 && p.y0 < p.y1)
-      flexit::panel::anim::pic_parts.push_back({p.x0, p.y0, p.x1, p.y1, p.colours, p.depth});
+      flexit::panel::overlay::pic_parts.push_back({p.x0, p.y0, p.x1, p.y1, p.colours, p.depth});
 }
 
 // How many colours the picture has and its size packed for the panel, as picture.h packs it
@@ -203,8 +205,8 @@ static void stats(int *colours, size_t *packed) {
 }
 
 // The copy of the show's animation n, null if there's none
-static flexit::panel::anim::Copy *copy_of(const char *n, flexit::panel::anim::Anim **an = nullptr) {
-  for (auto &p : flexit::panel::anim::anims)
+static flexit::panel::overlay::Copy *copy_of(const char *n, flexit::panel::overlay::Overlay **an = nullptr) {
+  for (auto &p : flexit::panel::overlay::overlays)
     if (p.name == std::string("w_") + n)
       for (auto &c : p.copies)
         if (c.used && !c.fading) {
@@ -249,12 +251,12 @@ static bool check(const Case &c) {
   bool kayak = live::heath_bay(scene) == live::HK_KAYAK;
   for (uint32_t end = sim::now_ms + 20 * 60000u; sim::now_ms < end; sim::now_ms += live::STEP) {
     live::loop(true);
-    anim::step(live::STEP);
+    overlay::step(live::STEP);
     steps++;
-    if (anim::Copy *k = kayak ? copy_of("hbay") : nullptr) {
-      int x = (int) lroundf(k->base[anim::X]), y = (int) lroundf(k->base[anim::Y]);
-      if (k->wave[anim::Y].on)
-        y += (int) lroundf(anim::wave_value(k->wave[anim::Y]));
+    if (overlay::Copy *k = kayak ? copy_of("hbay") : nullptr) {
+      int x = (int) lroundf(k->base[overlay::X]), y = (int) lroundf(k->base[overlay::Y]);
+      if (k->wave[overlay::Y].on)
+        y += (int) lroundf(overlay::wave_value(k->wave[overlay::Y]));
       bool ok = true;
       for (int r = 12; r <= 14; r++)  // the hull and the stern, at the water
         for (int dx = 0; dx < 30; dx++)
@@ -263,11 +265,11 @@ static bool check(const Case &c) {
       wet++;
     }
     for (const char *n : live::DOG_NAMES)
-      if (anim::Copy *d = copy_of(n)) {
-        int x = (int) lroundf(d->base[anim::X]), y = (int) lroundf(d->base[anim::Y]);
+      if (overlay::Copy *d = copy_of(n)) {
+        int x = (int) lroundf(d->base[overlay::X]), y = (int) lroundf(d->base[overlay::Y]);
         int ground = legs_ground(x) + dog_d;
         if (abs(y + dog.feet - ground) > dog_worst && sim::verbose)
-          printf("dog %s at %.1f,%.1f: feet %d, ground %d\n", n, d->base[anim::X], d->base[anim::Y], y + dog.feet,
+          printf("dog %s at %.1f,%.1f: feet %d, ground %d\n", n, d->base[overlay::X], d->base[overlay::Y], y + dog.feet,
                  ground);
         dog_worst = std::max(dog_worst, abs(y + dog.feet - ground));
       }
@@ -284,29 +286,29 @@ static bool failed;
 // --costs: each show that fits the case's picture, the heath's aside, run on its own for seconds, and the most it
 // took of the panel at a time, so the heath knows what it can have next to its own
 static void costs(const Case &c, const Args &a) {
-  namespace anim = flexit::panel::anim;
+  namespace overlay = flexit::panel::overlay;
   for (int i = 0; i < live::NSHOWS; i++) {
     if (!live::SHOWS[i].fits(scene) || live::SHOWS[i].start == live::life_on_heath)
       continue;
     live::stop();
-    anim::reset();
+    overlay::reset();
     live::R.show = i;
     live::SHOWS[i].start(scene);
     int places = 0, slots = 0;
     size_t bytes = 0;
     for (uint32_t end = sim::now_ms + (uint32_t) a.seconds * 1000; sim::now_ms < end; sim::now_ms += live::STEP) {
       live::loop(true);
-      anim::step(live::STEP);
+      overlay::step(live::STEP);
       size_t b = 0;
-      places = std::max(places, anim::copies_shown());
-      slots = std::max(slots, anim::slots_used(&b));
+      places = std::max(places, overlay::copies_shown());
+      slots = std::max(slots, overlay::slots_used(&b));
       bytes = std::max(bytes, b);
     }
     printf("%-26s cost of %-36s %d places, %d slots, %5zu bytes of frames\n", c.name, live::SHOWS[i].name, places,
            slots, bytes);
   }
   live::stop();
-  anim::reset();
+  overlay::reset();
 }
 
 static void run(const Case &c, const Args &a) {
@@ -325,7 +327,7 @@ static void run(const Case &c, const Args &a) {
 
   // the picture as it is without the animations
   live::stop();
-  flexit::panel::anim::reset();
+  flexit::panel::overlay::reset();
   live::R.on = false;
   draw(c, a, o, nullptr);
   picture(rgb);
@@ -378,19 +380,19 @@ static void run(const Case &c, const Args &a) {
   uint32_t next = sim::now_ms;
   for (int k = 0; k < frames;) {
     live::loop(true);
-    flexit::panel::anim::step(live::STEP);
+    flexit::panel::overlay::step(live::STEP);
     sim::now_ms += live::STEP;
     if (sim::now_ms >= next) {
       memcpy(rgb, base, sizeof base);
-      flexit::panel::anim::draw(rgb, W, H);
+      flexit::panel::overlay::draw(rgb, W, H);
       char f[32];
       snprintf(f, sizeof f, "/f%04d.ppm", k++);
       write_ppm(dir + f, rgb);
       next += (uint32_t) every;
-      most = std::max(most, flexit::panel::anim::copies_shown());
-      flexit::panel::anim::look();
+      most = std::max(most, flexit::panel::overlay::copies_shown());
+      flexit::panel::overlay::look();
       size_t b = 0;
-      slots = std::max(slots, flexit::panel::anim::slots_used(&b));
+      slots = std::max(slots, flexit::panel::overlay::slots_used(&b));
       bytes = std::max(bytes, b);
     }
   }
@@ -398,14 +400,14 @@ static void run(const Case &c, const Args &a) {
   fprintf(f, "%d\n", a.fps);
   fclose(f);
   printf("%-26s %d s of animation, up to %d copies, %d of %d slots and %zu bytes of frames at a time\n", "",
-         a.seconds, most, slots, ANIM_SLOTS, bytes);
-  for (auto &[name, px] : flexit::panel::anim::wrapped)
+         a.seconds, most, slots, OVERLAY_SLOTS, bytes);
+  for (auto &[name, px] : flexit::panel::overlay::wrapped)
     printf("%-26s %s drawn round the screen's edge, %d px\n", "", name.c_str(), px);
   if (sim::verbose)
-    for (auto &[name, w] : flexit::panel::anim::where)
+    for (auto &[name, w] : flexit::panel::overlay::where)
       printf("%-26s %s: its middle at x %.0f on average, at the screen's edge %d%% of the time\n", "", name.c_str(),
              w.x / w.n, 100 * w.edge / w.n);
-  for (auto &[name, n] : flexit::panel::anim::crossed)
+  for (auto &[name, n] : flexit::panel::overlay::crossed)
     if (n)
       printf("%-26s %s out at one edge and back at the other %d times\n", "", name.c_str(), n);
 }
