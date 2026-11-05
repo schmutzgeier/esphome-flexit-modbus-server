@@ -103,7 +103,8 @@ static Weather weather_of(const Case &c, uint32_t t) {
   w.wave = c.wave;
   for (int i = 0; i < HOURS; i++)  // the hours after drift a little
     w.hour[w.hours++] = {w.time + 3600u * i, c.temp + 0.4f * i - 0.03f * i * i, icon_of(c.symbol),
-                         c.wind * (1 + 0.05f * (i % 4)), (int16_t) (((int) c.wind_from + 10 * i) % 360)};
+                         c.wind * (1 + 0.05f * (i % 4)), (int16_t) (((int) c.wind_from + 10 * i) % 360),
+                         c.wind * (1.5f + 0.1f * (i % 3))};
   return w;
 }
 

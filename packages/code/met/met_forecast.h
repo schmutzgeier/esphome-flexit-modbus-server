@@ -2,7 +2,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
+#include "../panel/json_scan.h"
 
 namespace flexit::panel::met {
 
@@ -26,6 +26,7 @@ struct Hour {     // one hour of the forecast, for the overlay
   Icon icon;
   float wind;         // m/s
   int16_t wind_from;  // degrees
+  float gust;         // m/s, 0 if the forecast doesn't say
 };
 
 inline constexpr int HOURS = 18;
@@ -53,29 +54,29 @@ Hour now_of(const Weather &w, uint32_t t);
 // When the forecast has run out, an hour after its last hour
 inline uint32_t ends(const Weather &w) { return (w.hours ? w.hour[w.hours - 1].time : w.time) + 3600; }
 
-// Reads a Locationforecast 2.0 answer as it comes in, an hour at a time, so it needs only a small buffer. The
-// first hour is the weather now, it and the ones after it are for the overlay. "complete" has the cloud layers
-// and fog, "compact" doesn't.
-struct Reader {
-  static constexpr size_t SIZE = 4096;  // an hour is about 1.2 KB
-  char *buf;                            // SIZE + 1 bytes
-  size_t n = 0;
-  bool series = false;  // past "timeseries":[
-  Weather w;            // w.ok once it has the first hour
-
-  explicit Reader(char *b) : buf(b) { buf[0] = 0; }
-  // Where the next bytes go, and how many fit
-  char *space(size_t &room) {
-    room = SIZE - n;
-    return buf + n;
-  }
-  // n bytes came in at space(). False once it has HOURS hours, or what came can't be read.
-  bool got(size_t k);
+// Reads a Locationforecast 2.0 answer as it comes in, an hour at a time, keeping only what it takes from it. The
+// first hour is the weather now, it and the ones after it are for the overlay. "complete" has the cloud layers and
+// fog, "compact" doesn't.
+struct Forecast : JsonScan {
+  Weather w;  // w.ok once it has the first hour
+  // More of the answer. False once it has HOURS hours, or what came can't be read.
+  bool feed(const char *p, size_t n) { return scan(p, n) && !stop; }
+  void value(int depth, const char *key, int index, const char *v) override;
+  void end(int depth, const char *key) override;
 
  private:
-  void drop(size_t k);
-  // One hour, from its {"time" to the next one. False when no more are needed.
-  bool hour(std::string_view e);
+  struct Next {  // next_1_hours' or next_6_hours'
+    bool seen = false;
+    float rain = 0, thunder = 0;
+    char symbol[SYMBOL] = "";
+  };
+  bool stop = false;
+  // the hour being read
+  uint32_t time = 0;
+  float temp = 0;
+  bool has_temp = false, has_cloud = false;
+  float hwind = 0, hfrom = 0, hgust = 0;  // m/s, degrees, m/s
+  Next n1, n6;
 };
 
 // The waves from Oceanforecast 2.0: the significant wave height, hourly from about now. MET Norway has them for
@@ -91,23 +92,18 @@ struct Sea {
 // The wave height at t, UTC: the hour nearest it, if that's within three hours. -1 without one.
 float wave_at(const Sea &sea, uint32_t t);
 
-// Reads an Oceanforecast 2.0 answer as Reader does a forecast, an hour at a time
-struct SeaReader {
-  static constexpr size_t SIZE = 1024;  // an hour is about 250 bytes
-  char *buf;                            // SIZE + 1 bytes
-  size_t n = 0;
+// Reads an Oceanforecast 2.0 answer as Forecast does a forecast, an hour at a time
+struct Waves : JsonScan {
   Sea sea;
-
-  explicit SeaReader(char *b) : buf(b) { buf[0] = 0; }
-  char *space(size_t &room) {
-    room = SIZE - n;
-    return buf + n;
-  }
-  // n bytes came in at space(). False once it has SEA_HOURS hours, or what came can't be read.
-  bool got(size_t k);
+  // More of the answer. False once it has SEA_HOURS hours, or what came can't be read.
+  bool feed(const char *p, size_t n) { return scan(p, n) && !stop; }
+  void value(int depth, const char *key, int index, const char *v) override;
+  void end(int depth, const char *key) override;
 
  private:
-  void drop(size_t k);
+  bool stop = false, has = false;
+  uint32_t time = 0;
+  float height = 0;
 };
 
 }  // namespace flexit::panel::met

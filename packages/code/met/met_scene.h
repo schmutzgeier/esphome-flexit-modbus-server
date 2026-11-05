@@ -19,7 +19,7 @@ inline constexpr int CABIN_X = 178;  // in the band's gap between the clock and 
 // the texts where most have them. What a show parks on the land goes in the gap between them, or under the
 // temperatures right of the date.
 inline constexpr int GAP_L = 126, GAP_R = 228, DATE_R = 154, TEMPS_BOT = 222;
-inline constexpr int OV_H = 80;  // rows of the forecast overlay, at the top
+inline constexpr int OV_H = 92;  // rows of the forecast overlay, at the top, down to the gusts
 inline constexpr int16_t BAND[5] = {0, 52, 92, 118, 138};  // first row of each sky band
 inline constexpr int RB_RX = 100, RB_RY = 96;              // the rainbow's outer radii
 inline constexpr int LH_X = 268;                           // the lighthouse, on the coast's point
@@ -68,7 +68,7 @@ enum : uint16_t {
   L_BOAT = 1 << 12,
   L_HEATH = 1 << 13,  // the heath's people, dog, reindeer and walrus
 };
-// How far off things are, for the panel's K_PIC_PART and K_ANIM_DEPTH. The picture's parts are the land's layers,
+// How far off things are, for the panel's K_PIC_PART and K_OVERLAY_DEPTH. The picture's parts are the land's layers,
 // each in front of the animations farther off than it. An animation without a depth is in front of them all.
 enum Depth : uint8_t {
   D_SKY = 0,        // behind the land
@@ -211,7 +211,9 @@ struct Cloud {
   uint8_t n;
 };
 
-// A one-colour bitmap. Layer 0 is drawn in the sky behind the ground, 1 in front of it, 2 on top of everything.
+// A one-colour bitmap. Layer 0 is drawn in the sky behind the ground, ON_WATER on the sea behind the middle land and
+// what stands on it, 1 in front of the ground, 2 on top of everything.
+inline constexpr int ON_WATER = 3;
 struct Sprite {
   int16_t x, y;
   uint8_t w, h;                  // at most 64 by 24

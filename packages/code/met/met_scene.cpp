@@ -201,8 +201,12 @@ int marks(const Weather &w, uint32_t t, Offset offset, int *at) {
   return k;
 }
 
-// Now at top left with the rain and the wind, the next four 3-hour marks at top right, each with its wind. In the
-// clock band's Noto Sans: its 40 px for the temperature now, 16 px and 14 px for the rest.
+// The gusts, when they're stronger than the wind as the overlay rounds it. 0 for none.
+static int gust_of(const Hour &h) { return iround(h.gust) > iround(h.wind) ? iround(h.gust) : 0; }
+
+// Now at top left with the rain and the wind, the next four 3-hour marks at top right, each with its wind and in
+// brackets its gusts. In the clock band's Noto Sans: its 40 px for the temperature now, 16 px, 14 px and 12 px for
+// the rest.
 static void forecast(Scene &s, const Weather &w, uint32_t t, Offset offset) {
   char b[16];
   Hour now = now_of(w, t);
@@ -216,7 +220,10 @@ static void forecast(Scene &s, const Weather &w, uint32_t t, Offset offset) {
     wy = 58;
   }
   ov_arrow(s, 8, wy + 1, now.wind_from, 2);
-  snprintf(b, sizeof b, "%d m/s", iround(now.wind));
+  if (int g = gust_of(now))
+    snprintf(b, sizeof b, "%d (%d) m/s", iround(now.wind), g);
+  else
+    snprintf(b, sizeof b, "%d m/s", iround(now.wind));
   ov_text(s, 30, wy, b, FONT_MEDIUM);
   int at[4], n = marks(w, t, offset, at);
   for (int col = 0; col < n; col++) {
@@ -227,9 +234,14 @@ static void forecast(Scene &s, const Weather &w, uint32_t t, Offset offset) {
     ov_icon(s, cx - 9, 22, h.icon, 2);
     temp_text(b, sizeof b, h.temp);
     ov_text(s, cx - ov_text_width(b, FONT_MEDIUM) / 2 + 2, 40, b, FONT_MEDIUM);
-    ov_arrow(s, cx - 17, 62, h.wind_from, 1);  // and the wind then
+    ov_arrow(s, cx - 17, 62, h.wind_from, 1);  // and the wind then, its gusts under it
     snprintf(b, sizeof b, "%d", iround(h.wind));
     ov_text(s, cx - 5, 59, b, FONT_SMALL);
+    if (int g = gust_of(h)) {
+      int mid = cx - 5 + ov_text_width(b, FONT_SMALL) / 2;
+      snprintf(b, sizeof b, "(%d)", g);
+      ov_text(s, mid - ov_text_width(b, FONT_TINY) / 2, 75, b, FONT_TINY);
+    }
   }
 }
 
@@ -749,8 +761,13 @@ static void shape(Land &d, Ground g, const float *ph) {
   }
 }
 
+// A skerry, drawn once the trees stand
+struct Skerry {
+  int x, y, rx, ry;
+};
+
 // Sea to a rocky shore, a lighthouse on the point, and a sailboat off the coast on a fine day
-static void coast(Scene &s, const Now &n, Rng &h) {
+static void coast(Scene &s, const Now &n, Rng &h, Skerry *sk) {
   s.sea = true;
   s.sea_top = HORIZON + 1;
   s.lighthouse = true;  // 32 tall
@@ -759,17 +776,17 @@ static void coast(Scene &s, const Now &n, Rng &h) {
   s.rgb[C_LH_BAND] = mix(mix(0x2A1418, 0x9A3426, n.light), s.rgb[C_SKY + 4], n.fog / 200);
   if (n.dark && n.o.frame % 2 == 0)  // the lamp, lit every other redraw
     box(s, LH_X - 1, s.lh_y - 29, 3, 3, 2, WARM_LIGHT);
-  for (int k = 0; k < 2; k++) {  // skerries
+  for (int k = 0; k < 2; k++) {  // skerries, see skerries()
     int x = k ? h.in(140, 215) : h.in(20, 90);
-    blob(s, x, h.in(170, 178), h.in(4, 7), h.in(1, 2), 1, s.rgb[C_HILL + 1]);
+    sk[k] = {x, h.in(170, 178), h.in(4, 7), h.in(1, 2)};
   }
   int bx = h.in(120, 225), by = h.in(168, 176);  // in any weather, so the trees after it stay put
   s.boat = {(int16_t) bx, (int16_t) by};
   if (n.sun.el > 0 && n.wind < 10 && !n.rain && !n.snow && !n.thunder) {
     s.tag = L_BOAT;
-    box(s, bx - 5, by - 2, 11, 3, 1, s.rgb[C_HILL + 1]);
-    box(s, bx, by - 16, 1, 14, 1, s.rgb[C_HILL + 1]);
-    Sprite *sail = sprite(s, bx + 1, by - 15, 8, 12, 1, s.rgb[C_LH]);  // white as the lighthouse and the waves
+    box(s, bx - 5, by - 2, 11, 3, ON_WATER, s.rgb[C_HILL + 1]);
+    box(s, bx, by - 16, 1, 14, ON_WATER, s.rgb[C_HILL + 1]);
+    Sprite *sail = sprite(s, bx + 1, by - 15, 8, 12, ON_WATER, s.rgb[C_LH]);  // white as the lighthouse and the waves
     for (int r = 0; r < 12; r++)
       for (int c = 0; c < r * 8 / 12; c++)
         sprite_set(sail, c, r);
@@ -847,6 +864,8 @@ static void city(Scene &s, const Now &n, Rng &h) {
 static void sea(Scene &s, const Now &n) {
   const Weather &w = n.w;
   s.rgb[C_SEA] = mix(mix(0x0C1C30, 0x2C5C8C, n.light), s.rgb[C_SKY + 4], 0.35f);
+  if (s.rgb[C_SEA] == s.rgb[C_HILL + 1])  // a cloudy night rounds both the same, a step bluer keeps the shore
+    s.rgb[C_SEA] += 17;
   s.rgb[C_WAVE] = n.o.ground == G_MOUNTAINS ? s.rgb[C_SNOWCAP] : s.rgb[C_LH];
   Rng wv{(uint32_t) (n.t / 3600) * 7919u + 11};  // new waves each hour
   s.nwaves = std::min((int) std::size(s.wave_x), 6 + (int) (w.wind * 5));
@@ -928,6 +947,33 @@ static void fog_edges(Scene &s, const Now &n, float ph) {
     }
 }
 
+// How far tree i reaches either side of its middle at row y, -1 above it
+static int tree_hw(const Scene &s, int i, int y) {
+  const Tree &t = s.tree[i];
+  int d = y - t.top;
+  if (d < 0)
+    return -1;
+  if (t.kind == 0)
+    return spruce_hw(d);
+  Crown c = crown_of(s, i);
+  return d >= c.rows ? 1 : t.kind == 1 ? c.rx : 1 + d / 5;
+}
+
+// The skerries no tree stands in front of, as one half hidden behind a crown looks like a branch of it
+static void skerries(Scene &s, const Skerry *sk) {
+  for (int k = 0; k < 2; k++) {
+    const Skerry &e = sk[k];
+    bool hidden = false;
+    for (int i = 0; i < s.ntrees; i++)
+      for (int y = e.y - e.ry; y <= e.y + e.ry; y++) {
+        int hw = tree_hw(s, i, y);
+        hidden |= hw >= 0 && abs(e.x - s.tree[i].x) <= hw + e.rx + 1;
+      }
+    if (!hidden)
+      blob(s, e.x, e.y, e.rx, e.ry, ON_WATER, s.rgb[C_HILL + 1]);
+  }
+}
+
 // The hills, the landscape, the cabin or the park, the trees and the fog. Seeded by the location, so it's always
 // the same landscape there.
 static void ground(Scene &s, const Now &n) {
@@ -951,8 +997,9 @@ static void ground(Scene &s, const Now &n) {
   s.cabin = true;
   s.cabin_x = (int16_t) (CABIN_X + h.in(-8, 8));
   int ntrees = (int) std::size(s.tree), nfront = 11;
+  Skerry sk[2];
   if (n.o.ground == G_COAST) {
-    coast(s, n, h);
+    coast(s, n, h, sk);
     ntrees = nfront = 5;
   } else if (n.o.ground == G_MOUNTAINS) {
     mountains(s, n);
@@ -985,6 +1032,8 @@ static void ground(Scene &s, const Now &n) {
     }
   }
   trees(s, n, h, ntrees, nfront);
+  if (n.o.ground == G_COAST)
+    skerries(s, sk);
   s.window_lit = n.sun.el < -3 && ((n.hour >= 6 && n.hour < 23) || n.xmas || n.newyear);  // asleep after eleven
   s.rgb[C_WINDOW] = n.halloween ? rgb4(255, 140, 40) : WARM_LIGHT;
   s.rgb[C_CABIN] = mix(mix(0x2A1418, 0x9A3426, n.light), s.rgb[C_HILL + 2], n.fog / 200);  // falu red

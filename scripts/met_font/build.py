@@ -12,13 +12,13 @@ import sys
 from pathlib import Path
 
 # The fonts as the clock band has them (ui_saver.c): the clock in n40, the date in f14, the temperatures in f16.
-# f12 for the wave height in the few rows under the date.
+# f12 for the wave height in the few rows under the date, and the gusts under the 3-hour columns' wind.
 # '^' is written for the degree sign and '~' for the minus, an en dash, as the panel shows them.
 FONTS = {
     "BIG": ("font_n40.c", "0123456789~^"),
-    "MEDIUM": ("font_f16.c", "0123456789.~^ms/ "),
+    "MEDIUM": ("font_f16.c", "0123456789.~^ms/ ()"),
     "SMALL": ("font_f14.c", "0123456789~^"),
-    "TINY": ("font_f12.c", "0123456789.m "),
+    "TINY": ("font_f12.c", "0123456789.m ()"),
 }
 CODE = {"^": 0xB0, "~": 0x2013}
 THRESHOLD = 8  # of 15

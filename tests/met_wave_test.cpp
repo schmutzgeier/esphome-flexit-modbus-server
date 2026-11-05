@@ -1,4 +1,4 @@
-// The heath's wave height under the screensaver's date: Oceanforecast's answer read an hour at a time, the hour
+// The heath's wave height under the screensaver's date: Oceanforecast's answer read as it comes in, the hour
 // wave_at() takes, and the text build() writes in the bay and row() draws, or doesn't. make -C tests met_wave_test
 #include <cstring>
 #include <string>
@@ -6,6 +6,7 @@
 #include "met/met_heath.h"
 #include "met/met_raster.h"
 
+using namespace flexit::panel;
 using namespace flexit::panel::met;
 
 static int utc(uint32_t) { return 0; }
@@ -24,18 +25,12 @@ static std::string hour(int h, const char *height) {
   return b;
 }
 
-// What a SeaReader makes of s, handed to it in parts of k bytes
+// What a Waves reader makes of s, handed to it in parts of k bytes
 static Sea read_sea(const std::string &s, size_t k) {
-  static char buf[SeaReader::SIZE + 1];
-  SeaReader r(buf);
-  for (size_t i = 0; i < s.size(); i += k) {
-    size_t room, n = std::min(k, s.size() - i);
-    char *at = r.space(room);
-    CHECK(n <= room);
-    memcpy(at, s.data() + i, n);
-    if (!r.got(n))
+  Waves r;
+  for (size_t i = 0; i < s.size(); i += k)
+    if (!r.feed(s.data() + i, std::min(k, s.size() - i)))
       break;
-  }
   return r.sea;
 }
 
@@ -51,7 +46,7 @@ static void build_heath(float waves, bool forecast = true, Ground g = G_HEATH) {
   w.wind_from = 250;
   w.wave = waves;
   for (int i = 0; i < HOURS; i++)
-    w.hour[w.hours++] = {w.time + 3600u * i, 16, icon_of(w.symbol), 9, 250};
+    w.hour[w.hours++] = {w.time + 3600u * i, 16, icon_of(w.symbol), 9, 250, 14};
   Options o;
   o.ground = g;
   scene.sprite = sprites;
