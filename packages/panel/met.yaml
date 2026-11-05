@@ -3,9 +3,10 @@
 #   - path: packages/panel/met.yaml
 #     vars: {latitude: "59.9139", longitude: "10.7522"}
 # redraw_interval redraws the picture. name, encoding and quality work as in picture.yaml, palette suits the flat
-# colours. scene and aurora start the Panel Weather Scene and Aurora selects. "Panel Animation Weather" brings it to
-# life and takes the panel's animations, so turn your others off with it. The weather now is also a tile under
-# Display > Home screen > Dashboard tiles.
+# colours. facing is the compass direction in the middle of the picture, where the sun, moon and stars are drawn:
+# 0 north, 90 east, 180 south (the default), 270 west. scene and aurora start the Panel Weather Scene and Aurora
+# selects. "Panel Animation Weather" brings it to life and takes the panel's animations, so turn your others off
+# with it. The weather now is also a tile under Display > Home screen > Dashboard tiles.
 # The heath scene is the cabin on the heath under the mountain (scripts/met_art). The climber runs the ridge in the
 # rain, the kayaker comes ashore and runs with waves over 2 m or wind over 12 m/s, with snow both are out on skis,
 # and in rain over 4 mm they and the dog are behind the cabin's big window, as from 23:30 (lights out at midnight)
@@ -24,6 +25,7 @@ defaults:
   redraw_interval: 5min
   scene: heath
   aurora: auto
+  facing: "180"
 
 # api.met.no's certificate is from HARICA, which ESPHome's usual root bundle doesn't have, so we take the full one.
 # About 70 KB more flash.
@@ -107,6 +109,7 @@ esphome:
                                       id(panel_weather));
             flexit::panel::met::options.ground = flexit::panel::met::ground_of(id(panel_weather_scene).current_option().c_str());
             flexit::panel::met::options.aurora = flexit::panel::met::aurora_of(id(panel_weather_aurora).current_option().c_str());
+            flexit::panel::met::options.facing = ${facing};
 
 interval:
   - interval: 50ms  # what the weather animations do next

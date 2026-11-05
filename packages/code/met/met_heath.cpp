@@ -765,7 +765,7 @@ static void span(uint8_t *row, int a, int b, uint8_t c) {
 static void disc(uint8_t *row, int y, int cx, int cy, int r, uint8_t c) {
   int h = half(y - cy, r, r);
   if (h >= 0)
-    for (int k = -1; k <= 1; k++)  // north is at both edges, so draw it there too
+    for (int k = -1; k <= 1; k++)  // the sky behind the picture is at both edges, so draw it there too
       span(row, cx - h + k * W, cx + h + k * W, c);
 }
 
