@@ -11,7 +11,7 @@ using namespace flexit::panel::met;
 
 static int utc(uint32_t) { return 0; }
 
-static Sprite sprites[SPRITES];
+static Stamps stamps;
 static uint8_t ov[OV_H][W / 4];
 static Land land;
 static Scene scene;
@@ -49,7 +49,7 @@ static void build_heath(float waves, bool forecast = true, Ground g = G_HEATH) {
     w.hour[w.hours++] = {w.time + 3600u * i, 16, icon_of(w.symbol), 9, 250, 14};
   Options o;
   o.ground = g;
-  scene.sprite = sprites;
+  scene.stamps = &stamps;
   scene.ov = ov;
   scene.land = &land;
   build(scene, w, 60.39, 5.32, w.time, forecast, utc, o);

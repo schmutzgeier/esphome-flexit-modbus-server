@@ -8,11 +8,11 @@
 
 namespace flexit::panel::met {
 
-// met_scene.cpp's, for the heath's things
-Sprite *sprite(Scene &s, int x, int y, int w, int h, int layer, uint32_t c);
-void sprite_rows(Sprite *p, const uint32_t *rows);
-Sprite *blob(Scene &s, int cx, int cy, int rx, int ry, int layer, uint32_t c);
-Sprite *box(Scene &s, int x, int y, int w, int h, int layer, uint32_t c);
+// met_scene.cpp's stamps, for the heath's things
+Stamp *stamp(Scene &s, int x, int y, int w, int h, StampLayer layer, uint32_t c);
+void stamp_rows(Stamp *p, const uint32_t *rows);
+void blob(Scene &s, int cx, int cy, int rx, int ry, StampLayer layer, uint32_t c);
+void box(Scene &s, int x, int y, int w, int h, StampLayer layer, uint32_t c);
 void flag_norway(Scene &s, int x, int y, int dir, uint32_t red, uint32_t white, uint32_t blue);
 // Text in a font of met_font.h, y the top of its line
 void ov_text(Scene &s, int x, int y, const char *t, const Font &f);
@@ -35,7 +35,7 @@ void heath_overlay(Scene &s, const Now &n);
 
 // The artboard's moon with maria, a glow and a halo, in the sky's row y
 void heath_moon_row(const Scene &s, int y, uint8_t *out);
-// The heath's row y over the sky, the clouds and the sprites of layer 0: the wind's streaks, the landscape with
+// The heath's row y over the sky, the clouds and the stamps in it: the wind's streaks, the landscape with
 // the bay and the fog, the smoke, the flagpole and the people
 void heath_row(const Scene &s, int y, uint8_t *out);
 // The heath's colour slots row() may draw

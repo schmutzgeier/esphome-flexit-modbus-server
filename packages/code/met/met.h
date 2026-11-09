@@ -1,18 +1,19 @@
 // met_scene.h as a panel picture. met.yaml calls redraw() every few minutes so the sun and moon move. Only changed
 // rows are sent to the panel. MET Norway is asked for the forecast through fetch.h, again once its last answer has
 // expired, with If-Modified-Since, soon again after a server error and less often while it refuses or doesn't answer,
-// see Forecasts::got() and fetch::Schedule. The forecast is kept through all of that until it runs out.
+// see Forecasts::got() and fetch::Schedule. The forecast is kept through all of that until it runs out. NOAA is asked
+// for the Kp every 3 hours while the aurora is on, see KpIndex.
 #pragma once
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <new>
 #include <string>
 #include "../panel/fetch.h"
 #include "../panel/items.h"
 #include "../panel/picture.h"
 #include "met_heath.h"
+#include "met_kp.h"
 #include "met_live_shows.h"
 #include "met_raster.h"
 
@@ -67,6 +68,21 @@ struct Forecasts : fetch::Asker {
 };
 inline Forecasts forecasts;
 
+// A request for the Kp, and what's read from its answer
+struct KpAsk : fetch::Request {
+  KpReader read;
+  bool feed(const char *p, size_t n) override { return read.feed(p, n); }
+};
+
+// NOAA's Kp, asked for while the aurora is on auto or always. Panel Weather Kp is its status.
+struct KpIndex : fetch::Asker {
+  fetch::Request *make(int) override { return fetch::request<KpAsk>(KP_URL); }
+  bool got(fetch::Request &r) override;
+  bool wanted() override { return options.aurora != A_OFF; }
+};
+inline KpIndex kp_index;
+inline KpBlocks kp;  // its last answer's
+
 // A request for the waves, and what's read from its answer
 struct SeaAsk : fetch::Request {
   Waves f;
@@ -82,6 +98,8 @@ struct Seas : fetch::Asker {
   bool got(fetch::Request &r) override;
   void answered(fetch::Request *r) override;
   void none(int status);
+  // the coast writes the waves with the forecast; the heath draws its bay by them and writes them with it
+  bool wanted() override { return options.ground == G_HEATH || (options.ground == G_COAST && with_forecast); }
 };
 inline Seas seas;
 
@@ -115,7 +133,7 @@ inline int utc_offset(uint32_t t) {
   return (int) (unix_of(l.year, l.month, l.day_of_month, l.hour, l.minute, l.second) - t);
 }
 
-// The scene, only while picture.h makes the picture. Its sprites and overlay are blocks of their own, the land is
+// The scene, only while picture.h makes the picture. Its stamps and overlay are blocks of their own, the land is
 // kept while it's the panel's picture.
 struct Drawing {
   Scene scene;
@@ -130,7 +148,7 @@ inline bool counting;  // drawing has it but its colours, see prepare()
 
 inline void free_drawing() {
   if (drawing) {
-    RAMAllocator<Sprite>().deallocate(drawing->scene.sprite, SPRITES);
+    RAMAllocator<Stamps>().deallocate(drawing->scene.stamps, 1);
     if (drawing->scene.ov)
       RAMAllocator<uint8_t>().deallocate(drawing->scene.ov[0], OV_H * W / 4);
     RAMAllocator<Drawing>().deallocate(drawing, 1);
@@ -145,18 +163,19 @@ inline void free_drawing() {
 
 inline bool new_drawing() {
   size_t ov_bytes = with_forecast ? OV_H * W / 4 : 0;
-  if (!picture::has_ram(sizeof(Drawing) + SPRITES * sizeof(Sprite) + ov_bytes + (land ? 0 : sizeof(Land)),
-                        sizeof(Drawing)))
+  uint8_t at = picture::room_for(sizeof(Drawing) + sizeof(Stamps) + ov_bytes + (land ? 0 : sizeof(Land)),
+                                 sizeof(Drawing));  // internal RAM, PSRAM when that's short
+  if (!at)
     return false;
   bool new_land = !land;
-  if (new_land && (land = RAMAllocator<Land>().allocate(1)))
+  if (new_land && (land = RAMAllocator<Land>(at).allocate(1)))
     land->made = false;
-  Drawing *c = RAMAllocator<Drawing>().allocate(1);
-  Sprite *sprite = RAMAllocator<Sprite>().allocate(SPRITES);
-  uint8_t *ov = ov_bytes ? RAMAllocator<uint8_t>().allocate(ov_bytes) : nullptr;
-  if (!land || !c || !sprite || (ov_bytes && !ov)) {
+  Drawing *c = RAMAllocator<Drawing>(at).allocate(1);
+  Stamps *stamps = RAMAllocator<Stamps>(at).allocate(1);
+  uint8_t *ov = ov_bytes ? RAMAllocator<uint8_t>(at).allocate(ov_bytes) : nullptr;
+  if (!land || !c || !stamps || (ov_bytes && !ov)) {
     RAMAllocator<Drawing>().deallocate(c, 1);
-    RAMAllocator<Sprite>().deallocate(sprite, SPRITES);
+    RAMAllocator<Stamps>().deallocate(stamps, 1);
     RAMAllocator<uint8_t>().deallocate(ov, ov_bytes);
     if (new_land) {
       RAMAllocator<Land>().deallocate(land, 1);
@@ -164,7 +183,7 @@ inline bool new_drawing() {
     }
     return false;
   }
-  c->scene.sprite = sprite;
+  c->scene.stamps = stamps;
   c->scene.ov = (uint8_t (*)[W / 4]) ov;
   c->scene.land = land;
   drawing = c;
@@ -190,6 +209,7 @@ inline bool begin() {
   options.fireplace = flexit_fireplace_active ? flexit_fireplace_active() : false;
 #pragma GCC diagnostic pop
   options.frame++;
+  options.kp = kp.at((uint32_t) t.timestamp);
   Scene &s = drawing->scene;
   weather.wave = wave_at(sea, (uint32_t) t.timestamp);
   build(s, weather, lat, lon, (uint32_t) t.timestamp, with_forecast, utc_offset, options);
@@ -280,9 +300,8 @@ inline uint32_t pixel(int x, int y) {
 
 // With If-Modified-Since once we have a Last-Modified
 inline fetch::Request *Forecasts::make(int) {
-  auto *r = new (std::nothrow) Ask();
+  auto *r = fetch::request<Ask>(url);
   if (r) {
-    r->url = url;
     r->header = "If-Modified-Since";
     r->value = modified;
   }
@@ -311,6 +330,21 @@ inline bool Forecasts::got(fetch::Request &r) {
   char s[96];
   snprintf(s, sizeof s, "%s, %.1f °C, clouds %.0f %%, %.1f mm", w.symbol[0] ? w.symbol : "?", w.temp, w.cloud, w.rain);
   ESP_LOGI("met", "Weather: %s", s);
+  say(s);
+  redraw();
+  return true;
+}
+
+// NOAA's answer, with a Kp from now on in it. The aurora's redrawn by it.
+inline bool KpIndex::got(fetch::Request &r) {
+  const KpBlocks &k = static_cast<KpAsk &>(r).read.blocks;
+  uint32_t now = fetch::now_s();
+  if (!k.n || k.b[k.n - 1].t + KP_BLOCK_S <= now)
+    return false;
+  kp = k;
+  char s[64];
+  snprintf(s, sizeof s, "Kp %.1f now, the aurora needs %.1f here", kp.at(now), kp_needed(lat, lon));
+  ESP_LOGI("met", "%s", s);
   say(s);
   redraw();
   return true;
@@ -368,10 +402,10 @@ inline void Seas::answered(fetch::Request *r) {
   fetch::Asker::answered(r);
 }
 
-// From met.yaml's on_boot. status: Panel Weather.
-template<typename S>
+// From met.yaml's on_boot. status: Panel Weather, kp_status: Panel Weather Kp.
+template<typename S, typename K>
 void setup(double latitude, double longitude, const char *picture, const char *encoding, const char *quality,
-           S &&status) {
+           S &&status, K &&kp_status) {
   lat = latitude;
   lon = longitude;
   // MET Norway wants at most 4 decimals, more can get a 403
@@ -381,8 +415,13 @@ void setup(double latitude, double longitude, const char *picture, const char *e
   forecasts.server = "MET Norway";
   forecasts.status = ptr_of(status);
   fetch::add(forecasts);
-  snprintf(seas.url, sizeof seas.url,
-           "https://api.met.no/weatherapi/oceanforecast/2.0/complete?lat=%.4f&lon=%.4f", lat, lon);
+  kp_index.what = "Kp";
+  kp_index.server = "NOAA";
+  kp_index.every_s = KP_BLOCK_S;
+  kp_index.status = ptr_of(kp_status);
+  fetch::add(kp_index);
+  snprintf(seas.url, sizeof seas.url, "https://api.met.no/weatherapi/oceanforecast/2.0/complete?lat=%.4f&lon=%.4f", lat,
+           lon);
   seas.what = "waves";
   seas.server = "MET Norway";
   fetch::add(seas);  // after the forecast, so that's asked first
@@ -411,8 +450,7 @@ void setup(double latitude, double longitude, const char *picture, const char *e
   };
   s.parts = [] { return parts; };
   s.done = free_drawing;
-  s.encoding = picture::encoding_of(encoding);
-  s.quality = picture::quality_of(quality);
+  s.coding(encoding, quality);
   picture::add(name, s);
 }
 

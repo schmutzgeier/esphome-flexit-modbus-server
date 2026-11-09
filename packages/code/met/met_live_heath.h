@@ -10,6 +10,62 @@
 
 namespace flexit::panel::met::live {
 
+// ---- moving a placed copy from here, a message at a time, rather than by a script of its own on the panel
+
+inline void flip(const std::string &n, int i, bool h, bool v) { overlay::flip(key(n), i, h, v); }
+inline void move(const std::string &n, int i, int x, int y, int ms, const char *ease = "none") {
+  overlay::move(key(n), i, x, y, ms, ease);
+}
+inline void area(const std::string &n, int i, int l, int t, int r, int b, const char *ex, const char *ey) {
+  overlay::area(key(n), i, l, t, r, b, ex, ey);
+}
+inline void wander(const std::string &n, int i, float s0, float s1, int heading, int spread, int l0, int l1, int r0,
+                   int r1) {
+  overlay::wander(key(n), i, s0, s1, heading, spread, l0, l1, r0, r1);
+}
+// it faces the way it goes, mirrored from facing, upright
+inline void face(const std::string &n, int i, int facing = 0) { overlay::face(key(n), i, facing, true, 0, 0, true); }
+inline void wave(const std::string &n, int i, const char *what, int lo, int hi, int rise, int fall, int hold_high,
+                 int hold_low, int jitter, bool random, const char *slow) {
+  overlay::wave(key(n), i, what, lo, hi, rise, fall, hold_high, hold_low, jitter, random, slow);
+}
+// move() and remove() a while later. remove_later() returns at, for a visit's ms.
+inline void move_later(uint32_t at, const char *n, int i, int x, int y, int ms, const char *ease = "none") {
+  later(at, [=] { move(n, i, x, y, ms, ease); });
+}
+inline uint32_t remove_later(uint32_t at, const char *n, int i, int fade = 300) {
+  later(at, [=] { remove(n, i, fade); });
+  return at;
+}
+
+// An amble()'s moves, each to x, y over ms to fn(x, y, ms) in turn. The ms they take. h is a line with at(x).
+template<class Line, class F>
+uint32_t amble_steps(const Line &h, int x0, int x1, float speed, int mid, int dy, float downhill, int step, F fn) {
+  int steps = std::max(1, abs(x1 - x0) / step), px = x0, py = h.at(x0 + mid) - dy;
+  uint32_t t = 0;
+  for (int k = 1; k <= steps; k++) {
+    int x = x0 + (x1 - x0) * k / steps, y = h.at(x + mid) - dy, dx = std::max(1, abs(x - px));
+    float v = speed * std::clamp(1 + downhill * (y - py) / dx, 0.6f, 1.5f);
+    int ms = (int) (dx * 1000 / v);
+    fn(x, y, ms);
+    t += ms;
+    px = x;
+    py = y;
+  }
+  return t;
+}
+// Copy i of n from x0 to x1 along the line h, a step every step px or so at speed px/s, and with downhill quicker
+// downhill and slower uphill. Its top is dy above the line under its middle, mid px in. The ms it takes.
+template<class Line>
+uint32_t amble(const char *n, int i, const Line &h, int x0, int x1, float speed, int mid, int dy, float downhill = 0,
+               int step = 12) {
+  uint32_t t = 0;
+  return amble_steps(h, x0, x1, speed, mid, dy, downhill, step, [&](int x, int y, int ms) {
+    move_later(t, n, i, x, y, ms);
+    t += ms;
+  });
+}
+
 // A line the characters walk along, every column of it, so they keep to the ground's dips and bumps, but not to a
 // single tuft of heather
 struct Line {
@@ -58,8 +114,7 @@ inline void shuttle(const char *n, const HeathSprite &sp, const Line &line, int 
   if (abs(to - x) < 15)
     to = x < (lo + hi) / 2 ? hi : lo;
   bool right = to > x;
-  place(n, 0, x, top_at(line, sp, x), {false, 0, first ? -1 : 0});
-  flip(n, 0, right != faces_right, false);
+  place(n, 0, x, top_at(line, sp, x), "", {}, {.left = right != faces_right, .fade = first ? -1 : 0});
   // short steps, so it keeps to the ridge's dips
   uint32_t ms = amble(n, 0, line, x, to, speed, sp.frames.w / 2, sp.feet, downhill, 3);
   later(ms + minutes(0.02f, 0.15f), [=] { shuttle(n, sp, line, lo, hi, speed, downhill, faces_right, to, false); });
@@ -69,7 +124,7 @@ inline void shuttle(const char *n, const HeathSprite &sp, const Line &line, int 
 
 // The climber goes up the face to the ridge a step at a time, walks along it a while, and starts again
 inline void climb(const HeathSprite &sp, const Line &ridge) {
-  place("hmount", 0, sp.x, sp.y, {false, 0, 1500});
+  place("hmount", 0, sp.x, sp.y, "", {}, {.fade = 1500});
   int top = top_at(ridge, sp, sp.x), steps = std::max(1, sp.y - top);
   uint32_t t = 4000;
   for (int i = 1; i <= steps; i++, t += 7000)
@@ -144,8 +199,8 @@ inline void dog_as(int gait, bool right) {
     }
     add(DOG_NAMES[gait], d.frames);
   }
-  place(DOG_NAMES[gait], 0, HEATH.dog_x, top_at(HEATH.ground, d, HEATH.dog_x), {false, 0, HEATH.gait < 0 ? -1 : 0});
-  flip(DOG_NAMES[gait], 0, right, false);
+  place(DOG_NAMES[gait], 0, HEATH.dog_x, top_at(HEATH.ground, d, HEATH.dog_x), "", {},
+        {.left = right, .fade = HEATH.gait < 0 ? -1 : 0});
   HEATH.gait = gait;
   HEATH.dog_right = right;
 }
@@ -214,7 +269,7 @@ inline void the_dog(const Scene &s) {
 inline uint32_t deer_visit(const HeathSprite &walk, const HeathSprite &graze, const Line &ground) {
   int x0 = walk.x, x1 = (int) rnd(200, 250), mid = walk.frames.w / 2;
   add("hdeerwalk", walk.frames);
-  place("hdeerwalk", 0, x0, top_at(ground, walk, x0), {false, 0, 1500});
+  place("hdeerwalk", 0, x0, top_at(ground, walk, x0), "", {}, {.fade = 1500});
   HEATH.deer_x = x0;
   uint32_t out = amble("hdeerwalk", 0, ground, x0, x1, 2, mid, walk.feet, 0, 4), eat = minutes(0.25f, 0.5f);
   later(out, [=] {
@@ -222,14 +277,14 @@ inline uint32_t deer_visit(const HeathSprite &walk, const HeathSprite &graze, co
     remove("hdeerwalk", 0, 0);
     unload("hdeerwalk");
     add("hdeergraze", graze.frames);
-    place("hdeergraze", 0, x1, top_at(ground, graze, x1), {false, 0, 0});
+    place("hdeergraze", 0, x1, top_at(ground, graze, x1), "", {}, {.fade = 0});
   });
   later(out + eat, [=] {
     remove("hdeergraze", 0, 0);
     unload("hdeergraze");
     add("hdeerwalk", walk.frames);
-    place("hdeerwalk", 0, x1, top_at(ground, walk, x1), {false, 0, 0});
-    flip("hdeerwalk", 0, true, false);  // drawn facing left, it goes back right
+    // drawn facing left, it goes back right
+    place("hdeerwalk", 0, x1, top_at(ground, walk, x1), "", {}, {.left = true, .fade = 0});
     uint32_t back = amble("hdeerwalk", 0, ground, x1, x0 + 2, 2, mid, walk.feet, 0, 4);
     later(back, [] { HEATH.deer_x = -1; });
     remove_later(back, "hdeerwalk", 0, 1500);
@@ -245,8 +300,7 @@ inline uint32_t walrus_swim(const HeathSprite &sp) {
   int x0 = right ? lo : hi, x1 = right ? hi : lo;
   uint32_t ms = (uint32_t) abs(x1 - x0) * 2500;
   add("hwalrus", sp.frames);
-  place("hwalrus", 0, x0, y, {false, 0, 1500, D_SEA});
-  flip("hwalrus", 0, right, false);  // drawn facing left
+  place("hwalrus", 0, x0, y, "", {}, {.left = right, .fade = 1500, .depth = D_SEA});  // drawn facing left
   move("hwalrus", 0, x1, y, (int) std::min<uint32_t>(ms, 65000));
   remove_later(ms, "hwalrus", 0, 1500);
   later(ms + 2000, [] { unload("hwalrus"); });
@@ -259,7 +313,7 @@ inline uint32_t ravens_fly(int y) {
   bool left = chance(0.5f);  // where they come in from
   int x = (int) rnd(90, 200), ms = 15000, stay = (int) minutes(0.3f, 0.6f);
   in_light("ravens");
-  place("ravens", 0, left ? -34 : W + 4, y, {true});
+  place("ravens", 0, left ? -34 : W + 4, y);
   face("ravens", 0);
   wave("ravens", 0, "x", -36, 36, 14000, 14000, 0, 0, 20, false, "both");
   wave("ravens", 0, "y", -7, 7, 9000, 9000, 0, 0, 20, false, "both");

@@ -5,8 +5,9 @@
 # redraw_interval redraws the picture. name, encoding and quality work as in picture.yaml, palette suits the flat
 # colours. facing is the compass direction in the middle of the picture, where the sun, moon and stars are drawn:
 # 0 north, 90 east, 180 south (the default), 270 west. scene and aurora start the Panel Weather Scene and Aurora
-# selects. "Panel Animation Weather" brings it to life and takes the panel's animations, so turn your others off
-# with it. The weather now is also a tile under Display > Home screen > Dashboard tiles.
+# selects; on auto the aurora shows when NOAA's Kp reaches what it takes where you are. "Panel Animation Weather"
+# brings it to life and takes the panel's animations, so turn your others off with it. The weather now is also a tile
+# under Display > Home screen > Dashboard tiles.
 # The heath scene is the cabin on the heath under the mountain (scripts/met_art). The climber runs the ridge in the
 # rain, the kayaker comes ashore and runs with waves over 2 m or wind over 12 m/s, with snow both are out on skis,
 # and in rain over 4 mm they and the dog are behind the cabin's big window, as from 23:30 (lights out at midnight)
@@ -17,7 +18,7 @@
 # wave height under the date. With "Panel Animation Weather" on, the heath's people, dog, reindeer and walrus move
 # whenever someone's outside, the days and the weather staying still beside them; under the aurora and New Year's
 # fireworks they're all in.
-# Weather data: MET Norway, CC BY 4.0.
+# Weather data: MET Norway, CC BY 4.0. Kp: NOAA SWPC.
 defaults:
   name: weather
   encoding: palette
@@ -33,6 +34,7 @@ esp32:
   framework:
     advanced:
       use_full_certificate_bundle: true
+      include_builtin_idf_components: [esp_http_client]  # for fetch.h, ESPHome leaves it out unless asked
     sdkconfig_options:
       # TLS takes its buffers for each record as it comes and goes instead of 20 KB for the whole request, so the
       # request, which runs beside the pictures, needs less RAM at once. Closing a connection frees them either way.
@@ -97,6 +99,11 @@ text_sensor:
     name: "Panel Weather"
     entity_category: diagnostic
     icon: "mdi:weather-partly-cloudy"
+  - platform: template
+    id: panel_weather_kp
+    name: "Panel Weather Kp"
+    entity_category: diagnostic
+    icon: "mdi:aurora"
 
 esphome:
   # Only here, so builds without the weather don't compile its .cpp files
@@ -106,7 +113,7 @@ esphome:
     - then:
         - lambda: |-
             flexit::panel::met::setup(${latitude}, ${longitude}, "${name}", "${encoding}", "${quality}",
-                                      id(panel_weather));
+                                      id(panel_weather), id(panel_weather_kp));
             flexit::panel::met::options.ground = flexit::panel::met::ground_of(id(panel_weather_scene).current_option().c_str());
             flexit::panel::met::options.aurora = flexit::panel::met::aurora_of(id(panel_weather_aurora).current_option().c_str());
             flexit::panel::met::options.facing = ${facing};

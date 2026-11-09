@@ -607,11 +607,11 @@ static uint32_t mirror(uint32_t bits, int w) {
   return m;
 }
 
-// The rainbow flag for Pride, 22 by 18 in six stripes, on layer 2
+// The rainbow flag for Pride, 22 by 18 in six stripes, on top
 static void flag_pride(Scene &s, int x, int y) {
   static const uint32_t STRIPES[6] = {0xE40303, 0xFF8C00, 0xFFED00, 0x008026, 0x24408E, 0x732982};
   for (int k = 0; k < 6; k++)
-    box(s, x, y + 3 * k, 22, 3, 2, rgb4(STRIPES[k] >> 16, STRIPES[k] >> 8 & 255, STRIPES[k] & 255));
+    box(s, x, y + 3 * k, 22, 3, ON_TOP, rgb4(STRIPES[k] >> 16, STRIPES[k] >> 8 & 255, STRIPES[k] & 255));
 }
 
 // Now and then, by day or night, in the light there is: a reindeer from the rock carvings in the ochre they're painted with, peeking out of
@@ -628,7 +628,7 @@ static void animals(Scene &s, const Now &n, const Day &d) {
     uint32_t rows[DEER_H];
     for (int r = 0; r < DEER_H; r++)
       rows[r] = deer_row(R_STAND, r);
-    sprite_rows(sprite(s, x, DEER_Y, DEER_W, DEER_H, 1, ochre), rows);
+    stamp_rows(stamp(s, x, DEER_Y, DEER_W, DEER_H, ON_LAND, ochre), rows);
   }
   int walrus = a.in(0, 99), x = a.in(4, 40), y = a.in(0, 16), dir = a.in(0, 1) ? 1 : -1;
   if (y < 6) {  // out at the back of the bay, behind the kayak, where the bay is narrower
@@ -644,8 +644,8 @@ static void animals(Scene &s, const Now &n, const Day &d) {
       body[r] = dir < 0 ? WALRUS[r] : mirror(WALRUS[r], 11);
     for (int r = 0; r < 2; r++)
       tusks[r] = dir < 0 ? TUSKS[r] : mirror(TUSKS[r], 5);
-    sprite_rows(sprite(s, x, y, 11, 3, 1, ochre), body);
-    sprite_rows(sprite(s, dir < 0 ? x : x + 6, y + 3, 5, 2, 1, s.rgb[C_WHITE]), tusks);
+    stamp_rows(stamp(s, x, y, 11, 3, ON_LAND, ochre), body);
+    stamp_rows(stamp(s, dir < 0 ? x : x + 6, y + 3, 5, 2, ON_LAND, s.rgb[C_WHITE]), tusks);
   }
   s.tag = 0;
 }
@@ -693,11 +693,11 @@ void heath_holidays(Scene &s, const Now &n, Rng &rng) {
     for (int k = 0; k <= 12; k++) {
       int x = EAVE_L_X + (EAVE_R_X - EAVE_L_X) * k / 12, y = EAVE_L_Y + (EAVE_R_Y - EAVE_L_Y) * k / 12 + 1;
       s.light[k] = {(int16_t) x, (int16_t) y, (uint8_t) (k % 3)};
-      box(s, x, y, 2, 1, 2, cols[k % 3]);
+      box(s, x, y, 2, 1, ON_TOP, cols[k % 3]);
     }
     s.nlights = 13;
     s.star = {(int16_t) (CHIMNEY_X - 3), (int16_t) (CHIMNEY_Y - 9)};
-    sprite_rows(sprite(s, s.star.x, s.star.y, 7, 7, 2, window), STAR7.row);
+    stamp_rows(stamp(s, s.star.x, s.star.y, 7, 7, ON_TOP, window), STAR7.row);
     s.tag = 0;
   }
   if (n.easter_days && !n.white) {  // striped eggs in the heather in front of the cabin
@@ -706,8 +706,8 @@ void heath_holidays(Scene &s, const Now &n, Rng &rng) {
     for (int i = 0; i < (int) std::size(s.egg); i++) {
       int x = HOME_X - 30 + i * 13 + eg.in(-3, 3), y = LAND[x] + 8 + eg.in(0, 5);
       s.egg[s.neggs++] = {(int16_t) x, (int16_t) y};
-      blob(s, x, y, 4, 5, 1, cols[i % 3]);
-      Sprite *stripes = sprite(s, x - 3, y - 2, 7, 4, 1, s.rgb[C_WHITE]);  // both in one, sprites are scarce
+      blob(s, x, y, 4, 5, ON_LAND, cols[i % 3]);
+      Stamp *stripes = stamp(s, x - 3, y - 2, 7, 4, ON_LAND, s.rgb[C_WHITE]);  // both in one, stamps are scarce
       if (stripes)
         stripes->rows[0] = stripes->rows[3] = 0x7F;
     }
@@ -715,23 +715,23 @@ void heath_holidays(Scene &s, const Now &n, Rng &rng) {
   if (n.midsummer) {  // the bonfire, on the hill away from the cabin
     int bx = HOME_X - 30, by = LAND[bx] + 8;
     s.fire = {(int16_t) bx, (int16_t) by};
-    box(s, bx - 9, by - 2, 19, 3, 2, dark);  // the logs
+    box(s, bx - 9, by - 2, 19, 3, ON_TOP, dark);  // the logs
     s.tag = L_BONFIRE;
-    sprite_rows(sprite(s, bx - 7, by - 21, 15, 20, 2, rgb4(255, 130, 30)), FLAME.row);
-    sprite_rows(sprite(s, bx - 7, by - 21, 15, 20, 2, rgb4(255, 220, 90)), FLAME_IN.row);
+    stamp_rows(stamp(s, bx - 7, by - 21, 15, 20, ON_TOP, rgb4(255, 130, 30)), FLAME.row);
+    stamp_rows(stamp(s, bx - 7, by - 21, 15, 20, ON_TOP, rgb4(255, 220, 90)), FLAME_IN.row);
     for (int i = 0; i < 10; i++)
-      box(s, bx + rng.in(-12, 12), by - 24 - rng.in(0, 26), 1, 1, 2, rgb4(255, 220, 90));
-    blob(s, bx + n.wdir * 10, by - 36, 6, 4, 1, slot(s, S_MTN_C));  // smoke in the mountain's blue-grey
-    blob(s, bx + n.wdir * 18, by - 46, 8, 5, 1, slot(s, S_MTN_C));
+      box(s, bx + rng.in(-12, 12), by - 24 - rng.in(0, 26), 1, 1, ON_TOP, rgb4(255, 220, 90));
+    blob(s, bx + n.wdir * 10, by - 36, 6, 4, ON_LAND, slot(s, S_MTN_C));  // smoke in the mountain's blue-grey
+    blob(s, bx + n.wdir * 18, by - 46, 8, 5, ON_LAND, slot(s, S_MTN_C));
     s.tag = 0;
   }
   if (n.halloween) {  // a pumpkin by the door
     int px = DOOR_X - 14, py = DOOR_Y - 5;
     s.pumpkin = {(int16_t) px, (int16_t) py};
-    blob(s, px, py, 7, 6, 1, rgb4(255, 130, 40));
-    box(s, px - 1, py - 8, 3, 3, 1, dark);  // its stalk
+    blob(s, px, py, 7, 6, ON_LAND, rgb4(255, 130, 40));
+    box(s, px - 1, py - 8, 3, 3, ON_LAND, dark);  // its stalk
     if (n.dark)
-      sprite_rows(sprite(s, px - 5, py - 3, 11, 7, 2, rgb4(17, 17, 34)), FACE.row);
+      stamp_rows(stamp(s, px - 5, py - 3, 11, 7, ON_TOP, rgb4(17, 17, 34)), FACE.row);
   }
 }
 
