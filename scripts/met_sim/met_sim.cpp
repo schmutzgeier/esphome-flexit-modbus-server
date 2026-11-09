@@ -134,7 +134,7 @@ static void write_ppm(const std::string &path, const uint32_t *rgb) {
   fclose(f);
 }
 
-static Sprite sprites[SPRITES];
+static Stamps stamps;
 static uint8_t ov[OV_H][W / 4];
 static Land land;
 static Scene scene;
@@ -144,7 +144,7 @@ static void draw(const Case &c, const Args &a, Options &o, const uint32_t *prev)
   uint32_t t = sim::utc0 + sim::now_ms / 1000;
   Weather w = weather_of(c, t);
   o.frame++;
-  scene.sprite = sprites;
+  scene.stamps = &stamps;
   scene.ov = c.forecast ? ov : nullptr;
   scene.land = &land;
   build(scene, w, a.lat, a.lon, t, c.forecast, norway, o);

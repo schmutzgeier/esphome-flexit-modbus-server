@@ -1,7 +1,8 @@
 // Stands in for packages/code/panel/overlay.h when met_sim builds the weather animations on a PC: the ESP's side
 // of the link becomes a small model of what the panel does with an animation's copies, after plink_keys.h's
-// K_OVERLAY_* (place, glide, drift, wander, face, flip, wave, map, rounds, fades), on a clock of its own. It also gives
-// the little of ESPHome that met_live*.h use: millis(), the logs, the time and picture::has_ram().
+// K_OVERLAY_* (place, glide, drift, wander, face, flip, wave, map, depth, tint, fades) and the scripts the copies
+// run, compiled by the real overlay_script.h and stepped here as the panel would, on a clock of its own. It also
+// gives the little of ESPHome that met_live*.h use: millis(), the logs, the time and picture::has_ram().
 #pragma once
 #include <algorithm>
 #include <array>
@@ -16,7 +17,7 @@
 #include <random>
 #include <string>
 #include <vector>
-#include "plink_keys.h"  // the panel's OVERLAY_* limits, copied next to it by run.sh
+#include "overlay_script.h"  // the scripts' compiler, plink.h and plink_keys.h, copied next to it by run.sh
 
 // ---------------------------------------------------------------- ESPHome's
 
@@ -68,6 +69,7 @@ inline bool has_ram(size_t, size_t) { return true; }
 
 namespace flexit::panel::overlay {
 
+// As overlay.h's, which the shows fill in
 struct Source {
   int w, h, frames, frame_ms, x, y, scale;
   std::function<uint32_t(int, int, int)> pixel;
@@ -75,6 +77,11 @@ struct Source {
   std::function<void(bool)> on_shown = {};
   int fade_ms = 0;
   std::vector<uint16_t> delays = {};
+  std::vector<uint32_t> colours = {};
+  Clips clips = {};
+  Program script = {};
+  std::vector<uint32_t> glows = {};  // 0xRRGGBB, its pixels in them glow: no light or tint on them
+  uint32_t shade = 0;                // 0xRRGGBB, where the light below 100 takes its colours
 };
 inline std::map<std::string, Source> sources;
 inline void add(const std::string &name, Source s) { sources[name] = std::move(s); }
@@ -85,16 +92,13 @@ struct Work {
 };
 inline Work W;
 
-enum { X, Y, TURN, SIZE, OPACITY, SPEED, CHANNELS };
-inline const char *const CHANNEL_NAMES[] = {"x", "y", "turn", "size", "opacity", "speed"};
-inline int channel_of(const std::string &s) {
-  for (int i = 0; i < CHANNELS; i++)
-    if (s == CHANNEL_NAMES[i])
-      return i;
-  return -1;
-}
-// 0 none, 1 in, 2 out, 3 both
-inline int ease_of(const std::string &s) { return s == "in" ? 1 : s == "out" ? 2 : s == "both" ? 3 : 0; }
+// The channels, OVERLAY_X..OVERLAY_LIGHT
+enum { X, Y, TURN, SIZE, OPACITY, SPEED, LIGHT, NCH };
+static_assert((int) NCH == (int) OVERLAY_CHANNELS, "the panel's channels");
+inline int channel_of(const std::string &s) { return text::index(CHANNELS, s); }
+inline int no_change(int ch) { return ch >= SIZE ? 100 : 0; }
+// OVERLAY_EASE_* bits: 1 in, 2 out, 3 both
+inline int ease_of(const std::string &s) { return std::max(0, text::index(EASES, s)); }
 inline float eased(float t, int e) {
   t = std::clamp(t, 0.0f, 1.0f);
   if (e == 3)
@@ -130,21 +134,22 @@ struct Map {
   int l, r, t, b;
 };
 
-// A copy on the panel
+// A copy on the panel, in one of its places
 struct Copy {
   bool used = false, gone = false;
-  float base[CHANNELS] = {0, 0, 0, 100, 100, 100};
-  Glide glide[CHANNELS];
+  uint8_t place = 0;  // the panel's place, for the scripts that look at it
+  float base[NCH] = {0, 0, 0, 100, 100, 100, 100};
+  Glide glide[NCH];
   float drift[3] = {};  // px or degrees a second
-  bool own = false;
-  int start = 0;
+  bool own = false;     // a frame of its own, played by its clip
   uint32_t placed = 0;
+  int fade = -1;  // as placed, -1 the animation's
   int fade_in = 300;
   // fading out: from fade_t0 over fade_ms, then gone
   bool fading = false;
   uint32_t fade_t0 = 0;
   int fade_ms = 0;
-  int ax0 = -32768, ay0 = -32768, ax1 = 32767, ay1 = 32767, ex = 0, ey = 0;  // area and edges, 0 screen
+  int ax0 = -32768, ay0 = -32768, ax1 = 32767, ay1 = 32767, ex = 0, ey = 0;  // area and edges, OVERLAY_EDGE_*
   bool area = false;
   struct {
     bool on = false;
@@ -159,17 +164,33 @@ struct Copy {
   bool mirrored = false;  // by face
   bool flip_x = false, flip_y = false;
   bool torus = false;  // a drift or wander moved it: on a screen edge, what's over one edge shows at the other
-  Wave wave[CHANNELS];
-  Map map[CHANNELS];
-  int rounds = 0;
-  uint32_t rounds_end = 0;
-  float px = 0, py = 0;  // where it was a step ago, for face
+  Wave wave[NCH];
+  Map map[NCH];
+  float px = 0, py = 0;             // where it was a step ago, for face
   uint8_t depth = OVERLAY_NEAREST;  // K_OVERLAY_DEPTH's: behind the picture's parts nearer than it
+  bool tint = false;
+  uint32_t tint_rgb = 0;
+  // its frames, with one of its own: the clip, first to last, w x h of each from its top left (0 all of it), the
+  // frame it's on and how far into it, its rate, and the rounds of its clip so far. A clip at the end of a round.
+  int first = 0, last = 0, cw = 0, ch = 0, frame = 0, rate = 100, rounds = 0;
+  float frame_t = 0;
+  bool next = false, wrapped = false;  // wrapped: a round ended this step
+  int nfirst = 0, nlast = 0, ncw = 0, nch = 0;
+  // its script: the steps, where it is, its registers, what it waits for, and its END's tag
+  std::vector<uint8_t> code;
+  bool running = false, ended = false;
+  size_t pc = 0;
+  int32_t reg[OVERLAY_OWN_REGS] = {};
+  enum { NONE, MS, STEP, ROUNDS, CLIP } wait = NONE;
+  uint32_t until = 0, started = 0;
+  int rounds_to = 0;
+  uint8_t tag = 0;
 };
 
 enum State { WANT, SENT, FAILED };
 
-// A slot on the panel, OVERLAY_SLOTS of them. It's sent at once here, or FAILED when its frame doesn't fit OVERLAY_POOL.
+// A slot on the panel, OVERLAY_SLOTS of them. It's sent at once here, or FAILED when its frame doesn't fit
+// OVERLAY_POOL.
 struct Overlay {
   std::string name;  // "" = free slot
   Source src;
@@ -177,7 +198,7 @@ struct Overlay {
   bool cleared = false;
   int state = WANT;
   std::array<Copy, OVERLAY_PLACES> copies;
-  size_t frame_bytes() const { return (size_t) src.w / 2 * src.h; }
+  size_t frame_bytes() const { return (size_t) (src.w + 1) / 2 * src.h; }
   // The records' bytes: not modelled, they depend on how well pdeflate packs the frames. The shows budget for them
   // themselves, see met_live_sky.h's SKY_POOL.
   size_t data_bytes() const { return 0; }
@@ -212,6 +233,12 @@ struct Overlay {
   }
 };
 inline Overlay overlays[OVERLAY_SLOTS];
+inline int32_t shared[OVERLAY_REGS - OVERLAY_OWN_REGS];  // the registers all scripts share
+inline uint8_t tags;
+
+// Called with the animation when its script ended the last copy it had, and with a copy's marks
+inline std::function<void(const std::string &)> emptied;
+inline std::function<void(const std::string &, int, int)> marked;
 
 inline Overlay *find(const std::string &name) {
   for (auto &a : overlays)
@@ -220,7 +247,7 @@ inline Overlay *find(const std::string &name) {
   return nullptr;
 }
 
-// Bytes of OVERLAY_POOL the animations on the panel take, with their copies' own frames, other than a's
+// Bytes of OVERLAY_POOL the animations on the panel take, with their copies' own frames and scripts, other than a's
 inline size_t used_by_others(const Overlay *a) {
   size_t n = 0;
   for (auto &o : overlays) {
@@ -228,7 +255,8 @@ inline size_t used_by_others(const Overlay *a) {
       continue;
     n += o.frame_bytes() + o.data_bytes();
     for (auto &c : o.copies)
-      n += c.used && c.own ? o.frame_bytes() : 0;
+      if (c.used)
+        n += (c.own ? o.frame_bytes() : 0) + (c.code.empty() ? 0 : OVERLAY_SCRIPT_POOL + c.code.size());
   }
   return n;
 }
@@ -271,7 +299,6 @@ inline Copy *copy_of(const std::string &name, int i) {
   Overlay *a = find(name);
   return a && i >= 0 && i < OVERLAY_PLACES && a->copies[i].used && !a->copies[i].fading ? &a->copies[i] : nullptr;
 }
-
 inline Overlay *slot_for(const std::string &name) { return want(name); }
 
 // Copies on the panel, each in one of its OVERLAY_PLACES. One fading out has let go of its place, as overlay.h's
@@ -284,55 +311,602 @@ inline int places_used() {
   return n;
 }
 
-inline bool place(const std::string &name, int i, int x, int y, bool own, int start, int fade = -1,
-                  uint8_t depth = OVERLAY_NEAREST, int = -1) {
-  Overlay *a = want(name);
-  if (!a || i < 0 || i >= OVERLAY_PLACES)
-    return false;
-  Copy &c = a->copies[i];
-  if (!c.used && places_used() >= OVERLAY_PLACES) {
-    sim::log('W', "anim", "%s: all %d places taken", name.c_str(), OVERLAY_PLACES);
-    return false;
-  }
-  c = Copy();
-  c.used = true;
-  c.base[X] = c.px = (float) x;
-  c.base[Y] = c.py = (float) y;
-  c.own = own;
-  c.start = start;
-  c.placed = millis();
-  c.fade_in = fade >= 0 ? fade : a->src.fade_ms;
-  c.depth = depth;
-  return true;
-}
 // Copy i of name and its animation, nulls if it isn't shown
-inline std::pair<Overlay *, Copy *> copy_for(const std::string &name, int i) {
+inline std::pair<Overlay *, Copy *> copy_for(const std::string &name, int i, const char * = nullptr) {
   Overlay *a = find(name);
   if (a && i >= 0 && i < OVERLAY_PLACES && a->copies[i].used && !a->copies[i].fading)
     return {a, &a->copies[i]};
   return {};
 }
+// The copy at place p, null if none is there
+inline std::pair<Overlay *, Copy *> at_place(uint8_t p) {
+  for (auto &a : overlays)
+    for (auto &c : a.copies)
+      if (!a.name.empty() && c.used && !c.fading && c.place == p)
+        return {&a, &c};
+  return {};
+}
+// The place of copy i of name, for a script that looks at it, or one nothing's at
+inline uint8_t place_of(const std::string &name, int i) {
+  auto [a, c] = copy_for(name, i);
+  return c ? c->place : (uint8_t) 0xFE;
+}
+
 inline void fade_out(Overlay &a, Copy &c, int fade) {
   c.fading = true;
+  c.running = false;
   c.fade_t0 = millis();
   c.fade_ms = fade >= 0 ? fade : a.src.fade_ms;
 }
+
+// ---- the messages, as the panel takes them
+
+inline void start_leg(Wave &v, int step) {
+  v.step = step;
+  v.t0 = millis();
+  float k = 1 + rnd((float) -v.jitter, (float) v.jitter) / 100.0f;
+  if (step == 0 || step == 2) {
+    v.a = v.cur;
+    float to = step == 0 ? (float) v.hi : (float) v.lo;
+    if (v.random)
+      to = step == 0 ? rnd(v.cur, (float) v.hi) : rnd((float) v.lo, v.cur);
+    v.b = to;
+    float span = v.hi > v.lo ? std::fabs(to - v.cur) / (float) (v.hi - v.lo) : 1;
+    v.ms = (uint32_t) ((float) (step == 0 ? v.rise : v.fall) * span * k);
+  } else {
+    v.ms = (uint32_t) ((float) (step == 1 ? v.hold_hi : v.hold_lo) * k);
+  }
+}
+
+inline void glide_ch(Copy &c, int ch, float to, int ms, int ease) {
+  if (ch == TURN) {  // the short way round
+    float d = std::fmod(to - c.base[TURN], 360.0f);
+    if (d > 180)
+      d -= 360;
+    else if (d < -180)
+      d += 360;
+    to = c.base[TURN] + d;
+    c.face = false;
+  }
+  c.glide[ch] = {true, c.base[ch], to, millis(), (uint32_t) std::max(0, ms), ease};
+  if (ch <= Y) {
+    c.torus = false;  // the panel's glide can end partly off the screen, and that's all
+    c.wander.on = false;
+  }
+  if (ch <= TURN)
+    c.drift[ch] = 0;
+  if (!ms) {
+    c.base[ch] = to;
+    c.glide[ch].on = false;
+  }
+}
+
+// Message key, laid out as in plink_keys.h, to copy c
+inline void apply(Copy &c, uint16_t key, const std::vector<uint8_t> &m) {
+  auto u16 = [&](int at) { return (int) plink_get16(&m[at]); };
+  auto i16 = [&](int at) { return (int) plink_i16(&m[at]); };
+  switch (key) {
+    case K_OVERLAY_GLIDE: {
+      int bits = m[OVERLAY_GLIDE_CHANNELS], k = 0;
+      for (int ch = 0; ch < NCH; ch++)
+        if (bits >> ch & 1)
+          glide_ch(c, ch, (float) i16(OVERLAY_GLIDE_HEAD + 2 * k++), u16(OVERLAY_GLIDE_MS), m[OVERLAY_GLIDE_EASE]);
+      break;
+    }
+    case K_OVERLAY_DRIFT: {
+      int bits = m[OVERLAY_DRIFT_CHANNELS], k = 0;
+      for (int ch = X; ch <= TURN; ch++)
+        if (bits >> ch & 1) {
+          int v = i16(OVERLAY_DRIFT_HEAD + 2 * k++);
+          c.drift[ch] = ch == TURN ? (float) v / 10 : (float) v / 100;
+          c.glide[ch].on = false;
+          if (ch <= Y)
+            c.wander.on = false;
+          if (ch == TURN)
+            c.face = false;
+        }
+      break;
+    }
+    case K_OVERLAY_AREA:
+      c.area = true;
+      c.ax0 = i16(OVERLAY_AREA_X0), c.ay0 = i16(OVERLAY_AREA_Y0), c.ax1 = i16(OVERLAY_AREA_X1),
+      c.ay1 = i16(OVERLAY_AREA_Y1);
+      c.ex = m[OVERLAY_AREA_EDGES], c.ey = m[OVERLAY_AREA_EDGES + 1];
+      break;
+    case K_OVERLAY_WANDER: {
+      auto &w = c.wander;
+      w = {};
+      w.on = true;
+      w.s0 = (float) u16(OVERLAY_WANDER_SPEED) / 10, w.s1 = (float) u16(OVERLAY_WANDER_SPEED + 2) / 10;
+      w.heading = i16(OVERLAY_WANDER_HEADING), w.spread = i16(OVERLAY_WANDER_SPREAD);
+      w.l0 = u16(OVERLAY_WANDER_LEG), w.l1 = u16(OVERLAY_WANDER_LEG + 2);
+      w.r0 = u16(OVERLAY_WANDER_REST), w.r1 = u16(OVERLAY_WANDER_REST + 2);
+      c.glide[X].on = c.glide[Y].on = false;
+      c.drift[X] = c.drift[Y] = 0;
+      break;
+    }
+    case K_OVERLAY_FACE:
+      c.face = true;
+      c.face_mirror = m[OVERLAY_FACE_FLAGS] & OVERLAY_FACE_MIRROR;
+      c.facing = u16(OVERLAY_FACE_FACING);
+      break;
+    case K_OVERLAY_FLIP:
+      c.flip_x = m[OVERLAY_FLIP_FLAGS] & OVERLAY_FLIP_X;
+      c.flip_y = m[OVERLAY_FLIP_FLAGS] & OVERLAY_FLIP_Y;
+      break;
+    case K_OVERLAY_WAVE: {
+      int ch = m[OVERLAY_WAVE_CHANNEL], lo = i16(OVERLAY_WAVE_LO), hi = i16(OVERLAY_WAVE_HI);
+      if (ch >= NCH)
+        break;
+      Wave &v = c.wave[ch];
+      v = {};
+      if (lo == hi && lo == no_change(ch))
+        break;  // gone
+      v.on = true;
+      v.lo = lo, v.hi = hi, v.rise = u16(OVERLAY_WAVE_MS), v.fall = u16(OVERLAY_WAVE_MS + 2);
+      v.hold_hi = u16(OVERLAY_WAVE_HOLD), v.hold_lo = u16(OVERLAY_WAVE_HOLD + 2);
+      v.jitter = m[OVERLAY_WAVE_JITTER];
+      v.random = m[OVERLAY_WAVE_FLAGS] & OVERLAY_WAVE_RANDOM;
+      v.slow = m[OVERLAY_WAVE_FLAGS] & 3;
+      v.cur = (float) lo;
+      start_leg(v, 0);
+      break;
+    }
+    case K_OVERLAY_MAP: {
+      int ch = m[OVERLAY_MAP_CHANNEL];
+      if (ch >= TURN && ch < NCH)
+        c.map[ch] = {true, i16(OVERLAY_MAP_VALUES), i16(OVERLAY_MAP_VALUES + 2), i16(OVERLAY_MAP_VALUES + 4),
+                     i16(OVERLAY_MAP_VALUES + 6)};
+      break;
+    }
+    case K_OVERLAY_DEPTH:
+      c.depth = m[OVERLAY_DEPTH_DEPTH];
+      break;
+    case K_OVERLAY_TINT:
+      c.tint = m[OVERLAY_TINT_ON];
+      c.tint_rgb =
+          (uint32_t) m[OVERLAY_TINT_RGB] << 16 | (uint32_t) m[OVERLAY_TINT_RGB + 1] << 8 | m[OVERLAY_TINT_RGB + 2];
+      break;
+    default:
+      sim::log('W', "anim", "a script sent key 0x%X, which the mock doesn't take", key);
+  }
+}
+
+// ---- the scripts, stepped as the panel runs them
+
+// What the wave adds to channel ch now
+inline float wave_value(Wave &v) {
+  uint32_t now = millis();
+  for (int guard = 0; guard < 8 && now - v.t0 >= v.ms; guard++) {
+    if (v.step == 0 || v.step == 2)
+      v.cur = v.b;
+    uint32_t end = v.t0 + v.ms;
+    start_leg(v, (v.step + 1) % 4);
+    v.t0 = end;
+  }
+  if (v.step == 1 || v.step == 3)
+    return v.cur;
+  float t = v.ms ? (float) (now - v.t0) / (float) v.ms : 1;
+  // eased at the end it slows at: low is where a fall ends and a rise starts
+  bool at_lo = v.slow & 1, at_hi = v.slow & 2;
+  int e = v.step == 0 ? (at_lo ? 1 : 0) | (at_hi ? 2 : 0) : (at_hi ? 1 : 0) | (at_lo ? 2 : 0);
+  return v.a + (v.b - v.a) * eased(t, e);
+}
+// Channel ch of c as it's shown, with its wave
+inline float shown(Copy &c, int ch) {
+  float v = c.base[ch];
+  if (c.wave[ch].on)
+    v = ch <= TURN ? v + wave_value(c.wave[ch]) : v * wave_value(c.wave[ch]) / 100;
+  return v;
+}
+inline int box_w(const Overlay &a, const Copy &c) { return c.own && c.cw ? std::min(c.cw, a.src.w) : a.src.w; }
+inline int box_h(const Overlay &a, const Copy &c) { return c.own && c.ch ? std::min(c.ch, a.src.h) : a.src.h; }
+// The frame c shows, and its rounds so far: its own, or in step with its slot
+inline int frame_of(const Overlay &a, const Copy &c) { return c.own ? c.frame : a.frame_at(millis() - a.t0); }
+inline int rounds_of(const Overlay &a, const Copy &c) {
+  return c.own ? c.rounds : (int) ((millis() - a.t0) / (uint32_t) a.total_ms());
+}
+
+inline int32_t get(Overlay &a, Copy &c, int what, const Copy &self) {
+  switch (what) {
+    case OVERLAY_GET_X:
+      return (int32_t) lroundf(shown(c, X));
+    case OVERLAY_GET_Y:
+      return (int32_t) lroundf(shown(c, Y));
+    case OVERLAY_GET_W:
+      return box_w(a, c);
+    case OVERLAY_GET_H:
+      return box_h(a, c);
+    case OVERLAY_GET_TURN:
+      return ((int32_t) lroundf(shown(c, TURN)) % 360 + 360) % 360;
+    case OVERLAY_GET_SIZE:
+      return (int32_t) lroundf(shown(c, SIZE));
+    case OVERLAY_GET_OPACITY:
+      return (int32_t) lroundf(shown(c, OPACITY));
+    case OVERLAY_GET_LIGHT:
+      return (int32_t) lroundf(shown(c, LIGHT));
+    case OVERLAY_GET_FRAME:
+      return frame_of(a, c);
+    case OVERLAY_GET_ROUNDS:
+      return rounds_of(a, c);
+    case OVERLAY_GET_HERE:
+      return 1;
+    case OVERLAY_GET_MS:
+      return c.code.empty() ? 0 : (int32_t) (millis() - c.started);
+  }
+  (void) self;
+  return 0;
+}
+inline void middle(Overlay &a, Copy &c, float &x, float &y) {
+  x = shown(c, X) + box_w(a, c) / 2.0f;
+  y = shown(c, Y) + box_h(a, c) / 2.0f;
+}
+
+inline void set_clip(Copy &c, int first, int last, int w, int h, const Overlay &a) {
+  int n = std::max(1, a.src.frames);
+  c.first = ((first % n) + n) % n;
+  c.last = ((last % n) + n) % n;
+  if (c.last < c.first)
+    c.last = c.first;
+  c.cw = w, c.ch = h;
+  c.frame = c.first;
+  c.frame_t = 0;
+}
+
+// Runs c's script from where it is, up to OVERLAY_SCRIPT_STEPS steps, until it waits, stops or ends
+inline void run(Overlay &a, Copy &c) {
+  if (!c.running || c.fading)
+    return;
+  uint32_t now = millis();
+  switch (c.wait) {
+    case Copy::MS:
+      if ((int32_t) (now - c.until) < 0)
+        return;
+      break;
+    case Copy::ROUNDS:
+      if (c.rounds < c.rounds_to)
+        return;
+      break;
+    case Copy::CLIP:
+      if (c.next)
+        return;
+      break;
+    default:
+      break;
+  }
+  c.wait = Copy::NONE;
+  const std::vector<uint8_t> &b = c.code;
+  auto byte = [&]() -> int { return c.pc < b.size() ? b[c.pc++] : 0; };
+  auto two = [&]() {
+    int lo = byte();
+    return (int) (int16_t) (uint16_t) (lo | byte() << 8);
+  };
+  auto reg = [&](int r) -> int32_t & {
+    static int32_t none;
+    return r < OVERLAY_OWN_REGS ? c.reg[r] : r < OVERLAY_REGS ? shared[r - OVERLAY_OWN_REGS] : (none = 0);
+  };
+  auto val = [&]() -> int32_t {
+    int t = byte();
+    if (t == OVERLAY_V16)
+      return two();
+    if (t == OVERLAY_V32) {
+      uint32_t v = 0;
+      for (int k = 0; k < 4; k++)
+        v |= (uint32_t) byte() << 8 * k;
+      return (int32_t) v;
+    }
+    return reg(t - OVERLAY_VREG);
+  };
+  auto place = [&]() -> std::pair<Overlay *, Copy *> {
+    int p = byte();
+    return p == OVERLAY_SELF ? std::pair<Overlay *, Copy *>{&a, &c} : at_place((uint8_t) p);
+  };
+  auto holds = [](int32_t l, int cmp, int32_t r) {
+    switch (cmp) {
+      case OVERLAY_IF_LT:
+        return l < r;
+      case OVERLAY_IF_LE:
+        return l <= r;
+      case OVERLAY_IF_EQ:
+        return l == r;
+      case OVERLAY_IF_NE:
+        return l != r;
+      case OVERLAY_IF_GE:
+        return l >= r;
+      default:
+        return l > r;
+    }
+  };
+  for (int steps = 0; steps < OVERLAY_SCRIPT_STEPS; steps++) {
+    if (c.pc >= b.size()) {
+      c.running = false;
+      return;
+    }
+    int op = byte();
+    switch (op) {
+      case OVERLAY_DO_SET:
+      case OVERLAY_DO_ADD:
+      case OVERLAY_DO_SUB:
+      case OVERLAY_DO_MUL:
+      case OVERLAY_DO_DIV:
+      case OVERLAY_DO_MOD:
+      case OVERLAY_DO_MIN:
+      case OVERLAY_DO_MAX:
+      case OVERLAY_DO_ABS: {
+        int32_t &r = reg(byte());
+        int32_t v = val();
+        uint32_t ur = (uint32_t) r, uv = (uint32_t) v;
+        switch (op) {
+          case OVERLAY_DO_SET:
+            r = v;
+            break;
+          case OVERLAY_DO_ADD:
+            r = (int32_t) (ur + uv);
+            break;
+          case OVERLAY_DO_SUB:
+            r = (int32_t) (ur - uv);
+            break;
+          case OVERLAY_DO_MUL:
+            r = (int32_t) (ur * uv);
+            break;
+          case OVERLAY_DO_DIV:
+            r = v ? (int32_t) ((int64_t) r / v) : 0;
+            break;
+          case OVERLAY_DO_MOD:
+            r = v ? (int32_t) ((int64_t) r % v) : 0;
+            break;
+          case OVERLAY_DO_MIN:
+            r = std::min(r, v);
+            break;
+          case OVERLAY_DO_MAX:
+            r = std::max(r, v);
+            break;
+          default:
+            r = (int32_t) (v < 0 ? 0u - uv : uv);
+        }
+        break;
+      }
+      case OVERLAY_DO_RAND: {
+        int32_t &r = reg(byte());
+        int32_t lo = val(), hi = val();
+        if (hi < lo)
+          std::swap(lo, hi);
+        r = std::uniform_int_distribution<int32_t>(lo, hi)(rng);
+        break;
+      }
+      case OVERLAY_DO_GET: {
+        int32_t &r = reg(byte());
+        int what = byte();
+        auto [pa, pc] = place();
+        r = pc ? get(*pa, *pc, what, c) : 0;
+        break;
+      }
+      case OVERLAY_DO_DIST:
+      case OVERLAY_DO_ANGLE: {
+        int32_t &r = reg(byte());
+        auto [a1, c1] = place();
+        auto [a2, c2] = place();
+        if (!c1 || !c2) {
+          r = 0;
+          break;
+        }
+        float x1, y1, x2, y2;
+        middle(*a1, *c1, x1, y1);
+        middle(*a2, *c2, x2, y2);
+        if (op == OVERLAY_DO_DIST)
+          r = (int32_t) lroundf(std::hypot(x2 - x1, y2 - y1));
+        else
+          r = ((int32_t) lroundf(atan2f(y2 - y1, x2 - x1) * 180 / 3.14159265f) + 360) % 360;
+        break;
+      }
+      case OVERLAY_DO_SIN:
+      case OVERLAY_DO_COS: {
+        int32_t &r = reg(byte());
+        int32_t deg = val(), k = val();
+        float rad = (float) deg * 3.14159265f / 180;
+        r = (int32_t) lroundf((float) k * (op == OVERLAY_DO_SIN ? sinf(rad) : cosf(rad)));
+        break;
+      }
+      case OVERLAY_DO_PICK: {
+        int32_t &r = reg(byte());
+        int32_t k = val();
+        int n = byte();
+        size_t at = c.pc;
+        c.pc += 2 * (size_t) n;
+        int i = std::clamp<int32_t>(k, 0, n - 1);
+        r = n ? (int32_t) (int16_t) (uint16_t) (b[at + 2 * i] | b[at + 2 * i + 1] << 8) : 0;
+        break;
+      }
+      case OVERLAY_DO_GOTO: {
+        int to = byte();
+        c.pc = (size_t) (to | byte() << 8);
+        break;
+      }
+      case OVERLAY_DO_IF: {
+        int32_t l = val();
+        int cmp = byte();
+        int32_t r = val();
+        int to = byte();
+        to |= byte() << 8;
+        if (holds(l, cmp, r))
+          c.pc = (size_t) to;
+        break;
+      }
+      case OVERLAY_DO_WAIT: {
+        int32_t ms = val();
+        if (ms > 0) {
+          c.until = now + (uint32_t) ms;
+          c.wait = Copy::MS;
+          return;
+        }
+        break;
+      }
+      case OVERLAY_DO_UNTIL: {
+        int32_t l = val();
+        int cmp = byte();
+        int32_t r = val();
+        int to = byte();
+        to |= byte() << 8;
+        if (!holds(l, cmp, r)) {
+          c.pc = (size_t) to;  // worked out again at the next motion step
+          c.wait = Copy::STEP;
+          return;
+        }
+        break;
+      }
+      case OVERLAY_DO_ROUNDS: {
+        int32_t n = val();
+        if (n > 0) {
+          c.rounds_to = c.rounds + n;
+          c.wait = Copy::ROUNDS;
+          return;
+        }
+        break;
+      }
+      case OVERLAY_DO_CLIP: {
+        int32_t first = val(), last = val();
+        int mode = byte();
+        int w = byte();
+        w |= byte() << 8;
+        int h = byte();
+        h |= byte() << 8;
+        if (mode == OVERLAY_CLIP_NOW || c.wrapped) {
+          set_clip(c, first, last, w, h, a);
+        } else {
+          c.next = true;
+          c.nfirst = first, c.nlast = last, c.ncw = w, c.nch = h;
+          c.wait = Copy::CLIP;
+          return;
+        }
+        break;
+      }
+      case OVERLAY_DO_FRAME: {
+        int n = std::max(1, a.src.frames);
+        c.frame = ((val() % n) + n) % n;
+        c.frame_t = 0;
+        break;
+      }
+      case OVERLAY_DO_RATE:
+        c.rate = std::clamp<int32_t>(val(), 0, OVERLAY_RATE_MAX);
+        break;
+      case OVERLAY_DO_MOVE: {
+        int32_t x = val(), y = val(), ms = val();
+        int e = byte();
+        glide_ch(c, X, (float) x, ms, e);
+        glide_ch(c, Y, (float) y, ms, e);
+        break;
+      }
+      case OVERLAY_DO_SEND: {
+        uint16_t key = (uint16_t) (K_OVERLAY_FRAMES + byte());
+        int n = byte();
+        std::vector<uint8_t> m(b.begin() + (long) c.pc, b.begin() + (long) std::min(b.size(), c.pc + n));
+        c.pc += (size_t) n;
+        int k = byte();
+        for (int f = 0; f < k; f++) {
+          int at = byte();
+          int32_t v = val();
+          if (at + 1 < (int) m.size() && at >= 0)
+            plink_put16(&m[at], (uint16_t) v);
+        }
+        apply(c, key, m);
+        break;
+      }
+      case OVERLAY_DO_MARK: {
+        int tag = byte();
+        sim::log('D', "anim", "%s: copy %d at mark %d", a.name.c_str(), (int) (&c - a.copies.data()), tag);
+        if (marked)
+          marked(a.name, (int) (&c - a.copies.data()), tag);
+        break;
+      }
+      case OVERLAY_DO_END: {
+        int32_t fade = val();
+        c.tag = (uint8_t) byte();
+        c.ended = true;
+        fade_out(a, c, std::max<int32_t>(0, fade));
+        return;
+      }
+      default:
+        sim::log('W', "anim", "%s: a bad step %d at %zu", a.name.c_str(), op, c.pc - 1);
+        c.running = false;
+        return;
+    }
+  }
+  c.wait = Copy::STEP;  // on at the next motion step
+}
+
+// Copy c of a runs p from now on, told what p sends before it does anything else, with the places it looks at, its
+// END's tag and fade filled in
+inline void set_script(Overlay &a, Copy &c, const Program &p) {
+  for (auto &t : p.told)
+    apply(c, t.key, t.m);
+  c.code = p.bytes;
+  c.tag = 0;
+  if (p.ends() && !(c.tag = ++tags))
+    c.tag = ++tags;
+  for (auto &q : p.patches) {
+    if (q.at >= c.code.size())
+      continue;
+    if (q.kind == Program::PLACE)
+      c.code[q.at] = place_of(q.name, q.copy);
+    else if (q.kind == Program::TAG)
+      c.code[q.at] = c.tag;
+    else if ((size_t) q.at + 1 < c.code.size())
+      plink_put16(&c.code[q.at], (uint16_t) (c.fade >= 0 ? c.fade : a.src.fade_ms));
+  }
+  c.pc = 0;
+  c.wait = Copy::NONE;
+  c.next = false;
+  c.ended = false;
+  std::fill(std::begin(c.reg), std::end(c.reg), 0);
+  c.started = millis();
+  c.running = !c.code.empty();
+  run(a, c);  // at once
+}
+
+// ---- what overlay.h offers
+
+// The script of start frames in, for a copy with a frame of its own
+inline Program started(int start) {
+  std::string error;
+  return start > 0 ? compile("frame " + std::to_string(start), error) : Program();
+}
+
+inline bool place(const std::string &name, int i, int x, int y, Program p, bool own = false, int fade = -1,
+                  uint8_t depth = OVERLAY_NEAREST) {
+  Overlay *a = want(name);
+  if (!a || i < 0 || i >= OVERLAY_PLACES)
+    return false;
+  Copy &c = a->copies[i];
+  if ((!c.used || c.fading) && places_used() >= OVERLAY_PLACES) {
+    sim::log('W', "anim", "%s: all %d places taken", name.c_str(), OVERLAY_PLACES);
+    return false;
+  }
+  c = Copy();
+  c.used = true;
+  c.place = (uint8_t) ((a - overlays) * OVERLAY_PLACES + i);
+  c.base[X] = c.px = (float) x;
+  c.base[Y] = c.py = (float) y;
+  c.own = own || p.frames;
+  c.placed = millis();
+  c.fade = fade;
+  c.fade_in = fade >= 0 ? fade : a->src.fade_ms;
+  c.depth = depth;
+  set_clip(c, 0, a->src.frames - 1, 0, 0, *a);
+  set_script(*a, c, p);
+  return true;
+}
+inline bool place(const std::string &name, int i, int x, int y, bool own, int start, int fade = -1,
+                  uint8_t depth = OVERLAY_NEAREST) {
+  return place(name, i, x, y, own ? started(start) : Program(), own, fade, depth);
+}
 inline void remove(const std::string &name, int i, int fade = -1) {
-  Overlay *a = find(name);
-  if (a && i >= 0 && i < OVERLAY_PLACES && a->copies[i].used && !a->copies[i].fading)
-    fade_out(*a, a->copies[i], fade);
+  auto [a, c] = copy_for(name, i);
+  if (c)
+    fade_out(*a, *c, fade);
 }
 inline void depth(const std::string &name, int i, uint8_t d) {
   if (Copy *c = copy_for(name, i).second)
     c->depth = d;
-}
-// Copy i of from becomes copy i of to at x, y, at its depth, with nothing between them
-inline void swap(const std::string &from, int i, const std::string &to, int x, int y, bool own, int start) {
-  Copy *c = copy_for(from, i).second;
-  uint8_t d = c ? c->depth : OVERLAY_NEAREST;
-  if (c)
-    *c = Copy();
-  place(to, i, x, y, own, start, 0, d);
 }
 inline void clear(const std::string &name) {
   if (Overlay *a = find(name)) {
@@ -342,116 +916,70 @@ inline void clear(const std::string &name) {
     a->cleared = true;
   }
 }
-inline void glide(const std::string &name, int i, const std::string &what, int to, int ms, const std::string &ease) {
-  Copy *c = copy_of(name, i);
-  int ch = channel_of(what);
-  if (!c || ch < 0)
-    return;
-  c->glide[ch] = {true, c->base[ch], (float) to, millis(), (uint32_t) ms, ease_of(ease)};
-  if (ch <= Y)
-    c->torus = false;  // the panel's glide can end partly off the screen, and that's all
-  if (ch <= TURN)
-    c->drift[ch] = 0;
-  if (ch <= Y)
-    c->wander.on = false;
-  if (!ms) {
-    c->base[ch] = (float) to;
-    c->glide[ch].on = false;
+// Copy i runs the script in text, the one it ran before gone
+inline bool script(const std::string &name, int i, const std::string &text, const Consts &consts = {}) {
+  auto [a, c] = copy_for(name, i);
+  if (!c)
+    return false;
+  std::string error;
+  Program p = compile(text, error, a->src.clips, consts);
+  if (error.empty() && p.frames && !c->own)
+    error = "it plays frames, and copy " + std::to_string(i) + " has no frame of its own";
+  if (!error.empty()) {
+    sim::log('W', "anim", "%s's script, %s", name.c_str(), error.c_str());
+    return false;
   }
+  set_script(*a, *c, p);
+  return true;
+}
+inline void rounds(const std::string &name, int i, int n) {
+  script(name, i, n > 0 ? "wait rounds " + std::to_string(n) + "; end" : "");
+}
+
+// The actions that tell a copy one thing, as the messages they send
+inline void tell(const std::string &name, int i, uint16_t key, std::vector<uint8_t> m) {
+  if (Copy *c = copy_for(name, i).second)
+    apply(*c, key, m);
+}
+inline void glide(const std::string &name, int i, const std::string &what, int to, int ms, const std::string &ease) {
+  int ch = channel_of(what);
+  if (ch >= 0)
+    tell(name, i, K_OVERLAY_GLIDE, msg::glide(ch, {to}, ms, ease_of(ease)));
 }
 inline void move(const std::string &name, int i, int x, int y, int ms, const std::string &ease) {
-  glide(name, i, "x", x, ms, ease);
-  glide(name, i, "y", y, ms, ease);
+  tell(name, i, K_OVERLAY_GLIDE, msg::glide(X, {x, y}, ms, ease_of(ease)));
 }
 inline void drift(const std::string &name, int i, float vx, float vy) {
-  if (Copy *c = copy_of(name, i)) {
-    c->drift[X] = vx;
-    c->drift[Y] = vy;
-    c->glide[X].on = c->glide[Y].on = c->wander.on = false;
-  }
+  tell(name, i, K_OVERLAY_DRIFT, msg::drift(X, {hundredths(vx), hundredths(vy)}));
 }
 inline void spin(const std::string &name, int i, float speed) {
-  if (Copy *c = copy_of(name, i))
-    c->drift[TURN] = speed;  // degrees a second, 0 stops it where it is
+  tell(name, i, K_OVERLAY_DRIFT, msg::drift(TURN, {tenths(speed)}));
 }
-inline void flip(const std::string &name, int i, bool x, bool y) {
-  if (Copy *c = copy_of(name, i)) {
-    c->flip_x = x;
-    c->flip_y = y;
-  }
-}
+inline void flip(const std::string &name, int i, bool x, bool y) { tell(name, i, K_OVERLAY_FLIP, msg::flip(x, y)); }
 inline void area(const std::string &name, int i, int l, int t, int r, int b, const std::string &ex,
                  const std::string &ey) {
-  auto edge = [](const std::string &e) { return e == "cross" ? 1 : e == "bounce" ? 2 : 0; };
-  if (Copy *c = copy_of(name, i)) {
-    c->area = true;
-    c->ax0 = l, c->ay0 = t, c->ax1 = r, c->ay1 = b;
-    c->ex = edge(ex), c->ey = edge(ey);
-  }
+  tell(name, i, K_OVERLAY_AREA,
+       msg::area(l, t, r, b, std::max(0, text::index(EDGES, ex)), std::max(0, text::index(EDGES, ey))));
 }
 inline void wander(const std::string &name, int i, float s0, float s1, int heading, int spread, int l0, int l1, int r0,
                    int r1) {
-  if (Copy *c = copy_of(name, i)) {
-    auto &w = c->wander;
-    w = {};
-    w.on = true;
-    w.s0 = s0, w.s1 = s1, w.heading = heading, w.spread = spread, w.l0 = l0, w.l1 = l1, w.r0 = r0, w.r1 = r1;
-    c->glide[X].on = c->glide[Y].on = false;
-    c->drift[X] = c->drift[Y] = 0;
-  }
+  tell(name, i, K_OVERLAY_WANDER,
+       msg::wander((int) lroundf(s0 * 10), (int) lroundf(s1 * 10), heading, spread, l0, l1, r0, r1));
 }
-inline void face(const std::string &name, int i, int facing, bool mirror, int, int, bool) {
-  if (Copy *c = copy_of(name, i)) {
-    c->face = true;
-    c->face_mirror = mirror;
-    c->facing = facing;
-  }
-}
-inline void start_leg(Wave &v, int step) {
-  v.step = step;
-  v.t0 = millis();
-  float k = 1 + rnd(-v.jitter, v.jitter) / 100.0f;
-  if (step == 0 || step == 2) {
-    v.a = v.cur;
-    float to = step == 0 ? (float) v.hi : (float) v.lo;
-    if (v.random)
-      to = step == 0 ? rnd(v.cur, (float) v.hi) : rnd((float) v.lo, v.cur);
-    v.b = to;
-    float span = v.hi > v.lo ? std::fabs(to - v.cur) / (float) (v.hi - v.lo) : 1;
-    v.ms = (uint32_t) ((step == 0 ? v.rise : v.fall) * span * k);
-  } else {
-    v.ms = (uint32_t) ((step == 1 ? v.hold_hi : v.hold_lo) * k);
-  }
+inline void face(const std::string &name, int i, int facing, bool mirror, int tilt, int rate, bool level) {
+  tell(name, i, K_OVERLAY_FACE, msg::face(facing, mirror, tilt, rate, level));
 }
 inline void wave(const std::string &name, int i, const std::string &what, int lo, int hi, int rise, int fall,
                  int hold_high, int hold_low, int jitter, bool random, const std::string &slow) {
-  Copy *c = copy_of(name, i);
-  int ch = channel_of(what);
-  if (!c || ch < 0)
-    return;
-  Wave &v = c->wave[ch];
-  v = {};
-  v.on = true;
-  v.lo = lo, v.hi = hi, v.rise = rise, v.fall = fall, v.hold_hi = hold_high, v.hold_lo = hold_low;
-  v.jitter = jitter, v.random = random;
-  v.slow = slow == "low" ? 1 : slow == "high" ? 2 : slow == "both" ? 3 : 0;
-  v.cur = (float) lo;
-  start_leg(v, 0);
+  int ch = channel_of(what), s = std::max(0, text::index(SLOWS, slow));
+  if (ch >= 0)
+    tell(name, i, K_OVERLAY_WAVE,
+         msg::wave(ch, lo, hi, rise, fall, hold_high, hold_low, jitter, s | (random ? OVERLAY_WAVE_RANDOM : 0)));
 }
 inline void map(const std::string &name, int i, const std::string &what, int l, int r, int t, int b) {
-  Copy *c = copy_of(name, i);
   int ch = channel_of(what);
-  if (c && ch >= TURN)
-    c->map[ch] = {true, l, r, t, b};
-}
-inline void rounds(const std::string &name, int i, int n) {
-  Overlay *a = find(name);
-  Copy *c = copy_of(name, i);
-  if (!a || !c || n <= 0)
-    return;
-  uint32_t total = (uint32_t) a->total_ms(), into = (millis() - (c->own ? c->placed : a->t0)) % total;
-  c->rounds = n;
-  c->rounds_end = millis() + (total - into) + (uint32_t) (n - 1) * total;
+  if (ch >= TURN)
+    tell(name, i, K_OVERLAY_MAP, msg::map(ch, l, r, t, b));
 }
 
 // ---------------------------------------------------------------- the model
@@ -462,7 +990,7 @@ inline std::map<std::string, int> crossed;
 // Keeps v to lo..hi as the edge says, turning the velocity round on a bounce. size is the copy's width or height.
 // True when it went out at one edge and comes back at the other.
 inline bool keep(float &v, float &vel, float lo, float hi, float size, int edge) {
-  if (edge == 2) {  // bounce
+  if (edge == OVERLAY_EDGE_BOUNCE) {
     if (v < lo) {
       v = lo;
       vel = std::fabs(vel);
@@ -470,7 +998,7 @@ inline bool keep(float &v, float &vel, float lo, float hi, float size, int edge)
       v = hi - size;
       vel = -std::fabs(vel);
     }
-  } else if (edge == 1) {  // out across one edge, back in at the other
+  } else if (edge == OVERLAY_EDGE_CROSS) {  // out across one edge, back in at the other
     if (vel > 0 && v > hi) {
       v = lo - size;
       return true;
@@ -492,29 +1020,34 @@ inline bool keep(float &v, float &vel, float lo, float hi, float size, int edge)
   return false;
 }
 
-// The wave's value now
-inline float wave_value(Wave &v) {
-  uint32_t now = millis();
-  for (int guard = 0; guard < 8 && now - v.t0 >= v.ms; guard++) {
-    if (v.step == 0 || v.step == 2)
-      v.cur = v.b;
-    uint32_t end = v.t0 + v.ms;
-    start_leg(v, (v.step + 1) % 4);
-    v.t0 = end;
+// A copy with a frame of its own plays its clip on by dt ms
+inline void play(Overlay &a, Copy &c, uint32_t dt) {
+  c.wrapped = false;
+  if (!c.own || a.src.frames <= 0)
+    return;
+  c.frame_t += (float) dt * (float) c.rate / 100;
+  for (int guard = 0; guard < 64 && c.rate > 0 && c.frame_t >= (float) a.frame_ms(c.frame); guard++) {
+    c.frame_t -= (float) a.frame_ms(c.frame);
+    if (c.frame < c.last && c.frame >= c.first) {
+      c.frame++;
+      continue;
+    }
+    c.rounds++;  // a round of the clip ended
+    c.wrapped = true;
+    if (c.next) {
+      c.next = false;
+      set_clip(c, c.nfirst, c.nlast, c.ncw, c.nch, a);
+    } else {
+      c.frame = c.first;
+    }
   }
-  if (v.step == 1 || v.step == 3)
-    return v.cur;
-  float t = v.ms ? (float) (now - v.t0) / (float) v.ms : 1;
-  // eased at the end it slows at: low is where a fall ends and a rise starts
-  bool at_lo = v.slow & 1, at_hi = v.slow & 2;
-  int e = v.step == 0 ? (at_lo ? 1 : 0) | (at_hi ? 2 : 0) : (at_hi ? 1 : 0) | (at_lo ? 2 : 0);
-  return v.a + (v.b - v.a) * eased(t, e);
 }
 
-// Moves every copy on by dt ms
+// Moves every copy on by dt ms, and runs their scripts
 inline void step(uint32_t dt) {
   uint32_t now = millis();
-  float s = dt / 1000.0f;
+  float s = (float) dt / 1000.0f;
+  std::vector<std::string> empty;  // animations a script's END left without a copy
   for (Overlay &a : overlays) {
     if (a.name.empty())
       continue;
@@ -522,13 +1055,16 @@ inline void step(uint32_t dt) {
       if (!c.used)
         continue;
       if (c.fading && now - c.fade_t0 >= (uint32_t) c.fade_ms) {
+        bool ended = c.ended;
         c = Copy();
+        if (ended && std::none_of(a.copies.begin(), a.copies.end(), [](const Copy &o) { return o.used; }))
+          empty.push_back(a.name);
         continue;
       }
-      if (c.rounds && !c.fading && now >= c.rounds_end)
-        fade_out(a, c, -1);
-      float speed = c.base[SPEED] / 100.0f * (c.wave[SPEED].on ? wave_value(c.wave[SPEED]) / 100.0f : 1);
-      for (int ch = 0; ch < CHANNELS; ch++) {
+      play(a, c, dt);
+      run(a, c);
+      float speed = shown(c, SPEED) / 100.0f;
+      for (int ch = 0; ch < NCH; ch++) {
         Glide &g = c.glide[ch];
         if (g.on) {
           float t = g.ms ? (float) (now - g.t0) / (float) g.ms : 1;
@@ -537,22 +1073,23 @@ inline void step(uint32_t dt) {
             g.on = false;
         }
       }
-      float w = (float) a.src.w, h = (float) a.src.h;
+      float w = (float) box_w(a, c), h = (float) box_h(a, c);
       float x0 = c.area ? (float) c.ax0 : 0, x1 = c.area ? (float) c.ax1 : 320;
       float y0 = c.area ? (float) c.ay0 : 0, y1 = c.area ? (float) c.ay1 : 240;
       auto &wd = c.wander;
       if (wd.on) {
         if (now >= wd.until) {
           if (wd.resting || (wd.r0 == 0 && wd.r1 == 0)) {
-            float sp = rnd(wd.s0, wd.s1), hd = (wd.heading + rnd(-wd.spread, wd.spread)) * 3.14159265f / 180;
+            float sp = rnd(wd.s0, wd.s1),
+                  hd = ((float) wd.heading + rnd((float) -wd.spread, (float) wd.spread)) * 3.14159265f / 180;
             wd.vx = sp * cosf(hd);
             wd.vy = sp * sinf(hd);
             wd.resting = false;
-            wd.until = now + (uint32_t) rnd(wd.l0, wd.l1);
+            wd.until = now + (uint32_t) rnd((float) wd.l0, (float) wd.l1);
           } else {
             wd.vx = wd.vy = 0;
             wd.resting = true;
-            wd.until = now + (uint32_t) rnd(wd.r0, wd.r1);
+            wd.until = now + (uint32_t) rnd((float) wd.r0, (float) wd.r1);
           }
         }
         c.base[X] += wd.vx * speed * s;
@@ -588,6 +1125,9 @@ inline void step(uint32_t dt) {
     if (!any)
       a = Overlay();
   }
+  for (const std::string &n : empty)  // as the panel's GONE has it, which may clear it
+    if (emptied)
+      emptied(n);
 }
 
 // Pixels drawn round the screen's edge by animation, the part of a copy past one edge showing at the other
@@ -612,6 +1152,30 @@ inline bool hidden(int x, int y, int W, uint8_t depth) {
   return false;
 }
 
+// 0xRRGGBB c in the copy's tint and light, but for the colours that glow
+inline uint32_t lit(const Overlay &a, const Copy &c, uint32_t p, float light) {
+  if (std::find(a.src.glows.begin(), a.src.glows.end(), p) != a.src.glows.end())
+    return p;
+  auto mix = [](uint32_t from, uint32_t to, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    uint32_t r = 0;
+    for (int sh = 0; sh <= 16; sh += 8) {
+      float f = (float) (from >> sh & 255), g = (float) (to >> sh & 255);
+      r |= (uint32_t) lroundf(f + (g - f) * t) << sh;
+    }
+    return r;
+  };
+  if (c.tint) {  // a shade of the tint, black through it to white as it's dark or light
+    float l = (0.299f * (float) (p >> 16 & 255) + 0.587f * (float) (p >> 8 & 255) + 0.114f * (float) (p & 255)) / 255;
+    p = l < 0.5f ? mix(0, c.tint_rgb, 2 * l) : mix(c.tint_rgb, 0xFFFFFF, 2 * l - 1);
+  }
+  if (light < 100)
+    p = mix(a.src.shade, p, light / 100);
+  else if (light > 100)
+    p = mix(p, 0xFFFFFF, (light - 100) / (OVERLAY_LIGHT_MAX - 100));
+  return p;
+}
+
 // Draws every copy over rgb, W x H of 0xRRGGBB
 inline void draw(uint32_t *rgb, int W, int H) {
   uint32_t now = millis();
@@ -621,20 +1185,18 @@ inline void draw(uint32_t *rgb, int W, int H) {
     for (Copy &c : a.copies) {
       if (!c.used)
         continue;
-      float v[CHANNELS];
-      for (int ch = 0; ch < CHANNELS; ch++)
-        v[ch] = c.base[ch];
-      for (int ch = 0; ch < CHANNELS; ch++)
-        if (c.wave[ch].on && ch != SPEED)
-          v[ch] = ch <= TURN ? v[ch] + wave_value(c.wave[ch]) : v[ch] * wave_value(c.wave[ch]) / 100;
-      float mx = v[X] + a.src.w / 2.0f, my = v[Y] + a.src.h / 2.0f;
-      for (int ch = TURN; ch < CHANNELS; ch++) {
+      float v[NCH];
+      for (int ch = 0; ch < NCH; ch++)
+        v[ch] = shown(c, ch);
+      int bw = box_w(a, c), bh = box_h(a, c);
+      float mx = v[X] + bw / 2.0f, my = v[Y] + bh / 2.0f;
+      for (int ch = TURN; ch < NCH; ch++) {
         const Map &m = c.map[ch];
         if (!m.on || !c.area)
           continue;
-        float fx = std::clamp((mx - c.ax0) / (float) (c.ax1 - c.ax0), 0.0f, 1.0f),
-              fy = std::clamp((my - c.ay0) / (float) (c.ay1 - c.ay0), 0.0f, 1.0f);
-        float along = m.l + (m.r - m.l) * fx, down = m.t + (m.b - m.t) * fy;
+        float fx = std::clamp((mx - (float) c.ax0) / (float) (c.ax1 - c.ax0), 0.0f, 1.0f),
+              fy = std::clamp((my - (float) c.ay0) / (float) (c.ay1 - c.ay0), 0.0f, 1.0f);
+        float along = (float) m.l + (float) (m.r - m.l) * fx, down = (float) m.t + (float) (m.b - m.t) * fy;
         v[ch] = ch == TURN ? v[ch] + along + down : v[ch] * along / 100 * down / 100;
       }
       float op = std::clamp(v[OPACITY], 0.0f, 100.0f) / 100;
@@ -644,23 +1206,13 @@ inline void draw(uint32_t *rgb, int W, int H) {
         op *= 1 - std::min(1.0f, (float) (now - c.fade_t0) / (float) c.fade_ms);
       if (op <= 0.01f)
         continue;
-      // a frame of its own starts start frames in, the others go in step from when the animation came
-      uint32_t ms = now - a.t0;
-      if (c.own) {
-        ms = now - c.placed;
-        for (int k = 0; k < c.start % std::max(1, a.src.frames); k++)
-          ms += (uint32_t) a.frame_ms(k);
-      }
-      int f = a.frame_at(ms);
-      if (c.rounds && now >= c.rounds_end)
-        f = a.src.frames - 1;
-      const std::vector<uint32_t> &px = a.frame(f);
+      const std::vector<uint32_t> &px = a.frame(frame_of(a, c));
       float size = std::max(0.1f, v[SIZE] / 100), turn = v[TURN] * 3.14159265f / 180;
-      float ct = cosf(turn), st = sinf(turn), hw = a.src.w / 2.0f, hh = a.src.h / 2.0f;
+      float ct = cosf(turn), st = sinf(turn), hw = bw / 2.0f, hh = bh / 2.0f;
       bool fx = c.flip_x != c.mirrored, fy = c.flip_y;
       int r = (int) ceilf(std::hypot(hw, hh) * size) + 1;
       // each wrap of the screen, once a drift or wander has it going round it
-      int wraps = c.torus && (!c.area || c.ex == 0) ? 1 : 0;
+      int wraps = c.torus && (!c.area || c.ex == OVERLAY_EDGE_SCREEN) ? 1 : 0;
       for (int wrap = -wraps; wrap <= wraps; wrap++)
         for (int y = (int) my - r; y <= (int) my + r; y++) {
           if (y < 0 || y >= H)
@@ -669,20 +1221,21 @@ inline void draw(uint32_t *rgb, int W, int H) {
             int sx0 = x + wrap * W;
             if (sx0 < 0 || sx0 >= W)
               continue;
-            float dx = (x + 0.5f - mx) / size, dy = (y + 0.5f - my) / size;
+            float dx = ((float) x + 0.5f - mx) / size, dy = ((float) y + 0.5f - my) / size;
             float u = dx * ct + dy * st + hw, w = -dx * st + dy * ct + hh;
             int ix = (int) floorf(u), iy = (int) floorf(w);
-            if (ix < 0 || iy < 0 || ix >= a.src.w || iy >= a.src.h)
+            if (ix < 0 || iy < 0 || ix >= bw || iy >= bh)
               continue;
             if (fx)
-              ix = a.src.w - 1 - ix;
+              ix = bw - 1 - ix;
             if (fy)
-              iy = a.src.h - 1 - iy;
+              iy = bh - 1 - iy;
             uint32_t p = px[(size_t) iy * a.src.w + ix];
             if (p >> 24 < 128 || hidden(sx0, y, W, c.depth))
               continue;
             if (wrap)
               wrapped[a.name]++;
+            p = lit(a, c, p & 0xFFFFFF, v[LIGHT]);
             uint32_t &d = rgb[(size_t) y * W + sx0];
             auto ch = [&](int sh) {
               float b = (float) (d >> sh & 255), t = (float) (p >> sh & 255);
@@ -710,7 +1263,7 @@ inline int copies_shown(int *n_anims = nullptr) {
   return n;
 }
 
-// Slots taken now, and the bytes of OVERLAY_POOL their frames take
+// Slots taken now, and the bytes of OVERLAY_POOL their frames and scripts take
 inline int slots_used(size_t *bytes = nullptr) {
   int n = 0;
   for (auto &a : overlays)
@@ -732,7 +1285,7 @@ inline void look() {
     for (Copy &c : a.copies)
       if (!a.name.empty() && c.used && !c.fading) {
         Where &w = where[a.name];
-        float l = c.base[X], r = l + a.src.w;
+        float l = c.base[X], r = l + (float) box_w(a, c);
         w.n++;
         w.x += (l + r) / 2;
         w.edge += l < 16 || r > 320 - 16;
@@ -747,6 +1300,8 @@ inline void reset() {
   wrapped.clear();
   crossed.clear();
   where.clear();
+  std::fill(std::begin(shared), std::end(shared), 0);
+  tags = 0;
 }
 
 }  // namespace flexit::panel::overlay
