@@ -326,7 +326,7 @@ inline void cover_text(const Op &o, int y0, int y1, uint8_t *cov, Span &sp) {
 }
 
 // Whether a BITMAP has pixel x, y of the screen. Its top left is a pixel into its box.
-inline bool bit(const Op &o, int x, int y) {
+inline bool bit_on(const Op &o, int x, int y) {
   int c = x - (int) o.box.x0 - 1, r = y - (int) o.box.y0 - 1;
   if (c < 0 || r < 0 || (c /= o.scale) >= o.cols || (r /= o.scale) >= (int) o.rows.size())
     return false;
@@ -345,9 +345,9 @@ inline void cover(const Op &o, int y0, int y1, uint8_t *cov, Span &sp, bool edge
   if (o.kind == Op::BITMAP) {
     for (int y = ya; y < yb; y++)
       for (int x = x0; x < x1; x++) {
-        bool on = bit(o, x, y);
+        bool on = bit_on(o, x, y);
         for (int d = 0; edge && !on && d < 9; d++)
-          on = bit(o, x + d % 3 - 1, y + d / 3 - 1);
+          on = bit_on(o, x + d % 3 - 1, y + d / 3 - 1);
         put(cov, y0, x, y, on, sp);
       }
     return;

@@ -96,7 +96,7 @@ static std::vector<std::pair<int, int>> pixels(const std::vector<const marks::Op
       continue;
     for (int y = H - 80; y < H; y++)
       for (int x = 0; x < W; x++)
-        if (marks::bit(*o, x, y))
+        if (marks::bit_on(*o, x, y))
           px.push_back({x, y});
   }
   std::sort(px.begin(), px.end());
