@@ -12,7 +12,13 @@ namespace flexit::panel::met::live {
 
 // ---- moving a placed copy from here, a message at a time, rather than by a script of its own on the panel
 
-inline void flip(const std::string &n, int i, bool h, bool v) { overlay::flip(key(n), i, h, v); }
+// The waves a copy rocks on are told it as statements: overlay::told(key(n), i, "wave <channel> <low>, <high>, <rise>,
+// <fall> [hold <high>, <low>] [jitter <n>] [random] [slow <none|low|high|both>]"). That is the old overlay::wave(key,
+// i, what, lo, hi, rise, fall, hold_high, hold_low, jitter, random, slow) with the same numbers, the holds left out
+// when both were 0, and the jitter when it was 0. The three it had:
+//   the kayak  y -1, 1, 900, 900, jitter 30, both  ->  "wave y -1, 1, 900, 900 jitter 30 slow both"
+//   the ravens x -36, 36, 14000, 14000, jitter 20  ->  "wave x -36, 36, 14000, 14000 jitter 20 slow both"
+//   the ravens y -7, 7, 9000, 9000, jitter 20      ->  "wave y -7, 7, 9000, 9000 jitter 20 slow both"
 inline void move(const std::string &n, int i, int x, int y, int ms, const char *ease = "none") {
   overlay::move(key(n), i, x, y, ms, ease);
 }
@@ -25,10 +31,6 @@ inline void wander(const std::string &n, int i, float s0, float s1, int heading,
 }
 // it faces the way it goes, mirrored from facing, upright
 inline void face(const std::string &n, int i, int facing = 0) { overlay::face(key(n), i, facing, true, 0, 0, true); }
-inline void wave(const std::string &n, int i, const char *what, int lo, int hi, int rise, int fall, int hold_high,
-                 int hold_low, int jitter, bool random, const char *slow) {
-  overlay::wave(key(n), i, what, lo, hi, rise, fall, hold_high, hold_low, jitter, random, slow);
-}
 // move() and remove() a while later. remove_later() returns at, for a visit's ms.
 inline void move_later(uint32_t at, const char *n, int i, int x, int y, int ms, const char *ease = "none") {
   later(at, [=] { move(n, i, x, y, ms, ease); });
@@ -165,7 +167,7 @@ inline void bay(const Scene &s, HeathKind k) {
     wander("hbay", 0, 0.8f, 2, 0, 15, 5000, 15000, 2000, 8000);
     face("hbay", 0, 180);
     if (s.heath.bft >= 3)
-      wave("hbay", 0, "y", -1, 1, 900, 900, 0, 0, 30, false, "both");
+      overlay::told(key("hbay"), 0, "wave y -1, 1, 900, 900 jitter 30 slow both");
   } else if (k == HK_RUN_SHORE) {  // ashore in waves or a gale, running along it
     shuttle("hbay", sp, under(s, 1, sp), 62, 125, 6, 0, true, sp.x, true);
   } else {
@@ -315,8 +317,8 @@ inline uint32_t ravens_fly(int y) {
   in_light("ravens");
   place("ravens", 0, left ? -34 : W + 4, y);
   face("ravens", 0);
-  wave("ravens", 0, "x", -36, 36, 14000, 14000, 0, 0, 20, false, "both");
-  wave("ravens", 0, "y", -7, 7, 9000, 9000, 0, 0, 20, false, "both");
+  overlay::told(key("ravens"), 0, "wave x -36, 36, 14000, 14000 jitter 20 slow both");
+  overlay::told(key("ravens"), 0, "wave y -7, 7, 9000, 9000 jitter 20 slow both");
   move("ravens", 0, x, y, ms, "out");
   move_later((uint32_t) (ms + stay), "ravens", 0, left ? W + 40 : -70, y - 12, ms, "in");
   uint32_t all = remove_later((uint32_t) (2 * ms + stay), "ravens", 0);
@@ -325,7 +327,8 @@ inline uint32_t ravens_fly(int y) {
 }
 
 // The visitors by turns: the reindeer, the walrus, the sea eagle's catch and the ravens, each one that can come, and
-// now and then something rare in a turn instead, see heath_rare()
+// now and then something rare in a turn instead, see heath_rare(). The act's cost leaves VISIT for the one that is
+// here, so a visit waits while another is, and the cast's own roll for rare encounters leaves the heath to these.
 inline constexpr uint32_t VISIT_EVERY = minutes(5);
 inline void visitors(const Scene &s) {
   bool walrus = s.at.fog <= 45 && s.heath.bft <= 6, ridge_free = heath_mountain(s) == HK_NONE;
@@ -338,14 +341,24 @@ inline void visitors(const Scene &s) {
     top = std::min<int>(top, s.land->hill[0][x]);
   int raven_y = std::max(s.overlay ? OV_H + 6 : 10, top - 26);
   sometimes(VISIT_EVERY, minutes(0.5f, 3), [=] {
+    if (!visitor_room())
+      return minutes(1);
+    R.guest = VISIT;
     if (uint32_t ms = heath_rare(VISIT_EVERY, ridge_free))
       return ms;
     for (int k = 0; k < 4; k++) {
       int v = HEATH.turn++ % 4;
-      uint32_t ms = v == 0   ? deer_visit(walk, graze, ground)
-                    : v == 1 ? (walrus ? walrus_swim(wal) : 0)
-                    : v == 2 ? heath_eagle()
-                             : (ravens ? ravens_fly(raven_y) : 0);
+      // the eagle's catch is an encounter and comes by come() itself, see encounter()
+      uint32_t ms = v == 2 ? heath_eagle()
+                           : come(
+                                 [&] {
+                                   return v == 0   ? deer_visit(walk, graze, ground)
+                                          : v == 1 ? (walrus ? walrus_swim(wal) : 0)
+                                                   : (ravens ? ravens_fly(raven_y) : 0);
+                                 },
+                                 ON_PANEL);
+      if (v != 2 && ms)  // the reindeer swaps its sprite for another, so the visit holds the room till it's over
+        R.busy = millis() + ms;
       if (ms)
         return ms;
     }

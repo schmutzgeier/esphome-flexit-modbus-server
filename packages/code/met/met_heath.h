@@ -3,7 +3,6 @@
 // the year, a reindeer and a walrus. met_scene.cpp and met_raster.cpp hand it their parts of the scene where it's
 // the heath. Plain C++ without ESPHome, see met_scene.h.
 #pragma once
-#include "met_font.h"
 #include "met_scene.h"
 
 namespace flexit::panel::met {
@@ -11,12 +10,10 @@ namespace flexit::panel::met {
 // met_scene.cpp's stamps, for the heath's things
 Stamp *stamp(Scene &s, int x, int y, int w, int h, StampLayer layer, uint32_t c);
 void stamp_rows(Stamp *p, const uint32_t *rows);
+void stamp_set(Stamp *p, int x, int y);
 void blob(Scene &s, int cx, int cy, int rx, int ry, StampLayer layer, uint32_t c);
 void box(Scene &s, int x, int y, int w, int h, StampLayer layer, uint32_t c);
 void flag_norway(Scene &s, int x, int y, int dir, uint32_t red, uint32_t white, uint32_t blue);
-// Text in a font of met_font.h, y the top of its line
-void ov_text(Scene &s, int x, int y, const char *t, const Font &f);
-int ov_text_width(const char *t, const Font &f);
 
 // ---- for build()
 
@@ -28,7 +25,7 @@ void heath_ground(Scene &s, const Now &n, uint32_t seed);
 void heath_life(Scene &s, const Now &n, Rng &rng);
 // holidays() for the heath
 void heath_holidays(Scene &s, const Now &n, Rng &rng);
-// After overlay(): its outline in the heath's darkest colour, and the wave height in the bay
+// With the forecast: whether the wave height is written in the bay (s.heath.sea_text), forecast_marks() draws it
 void heath_overlay(Scene &s, const Now &n);
 
 // ---- for row() and palette()

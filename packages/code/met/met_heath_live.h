@@ -1,4 +1,4 @@
-// The heath's characters as sprites for its show, met_live_heath.h: the one on the mountain, the one by the bay,
+// The heath's characters as sprites for its act, met_live_heath.h: the one on the mountain, the one by the bay,
 // the dog in its gaits, the reindeer and the walrus, made from met_art.h's figures and met_heath.cpp's bitmaps.
 // Plain C++ without ESPHome, see met_scene.h.
 #pragma once

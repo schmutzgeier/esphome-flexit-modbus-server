@@ -19,6 +19,13 @@ static constexpr int HOME_X = art::DOOR_X - 40;  // the hill in front of the cab
 // What the panel holds for a picture, a little under PIC_POOL, packed as picture.h packs it
 static constexpr size_t PACK_MAX = 13824;
 
+// The heath's sky has five bands from the top to the horizon, as the artboard has it. The picture's sky has three
+// (C_SKY, C_SKY + 1 and C_LOW), so the others are mixed between the two ends at the artboard's steps.
+static uint32_t sky_at(const Scene &s, int i) {
+  static constexpr float AT[5] = {0, 0.3f, 0.55f, 0.78f, 1};
+  return i == 0 ? s.rgb[C_SKY] : i == 4 ? s.rgb[C_LOW] : mix(s.rgb[C_SKY], s.rgb[C_LOW], AT[i]);
+}
+
 // ---------------------------------------------------------------- the sea
 
 // The Beaufort scale as in MET Norway's wind and wave table: each force's top wind speed in m/s, and the height of a
@@ -77,7 +84,7 @@ struct Day {
 static Day day_of(const Scene &s, const Now &n) {
   Day d;
   int minutes = (int) (n.local % 86400 / 60);
-  d.awake = minutes >= 6 * 60;                                                            // asleep from midnight to six
+  d.awake = minutes >= 6 * 60;  // asleep from midnight to six
   d.indoors = (n.rain && n.w.ok && n.w.rain > 4) || !d.awake || minutes >= 22 * 60 + 30 ||  // home from half past 10
               s.aurora || (n.newyear && n.dark);
   d.bft = n.w.ok ? beaufort(n.w.wind) : 1;  // without the weather, a little light on the water
@@ -374,7 +381,7 @@ static void colours(Scene &s, const Now &n, const Day &d) {
     seasonal[k] = -1;
   for (int l = 0; l < L_N; l++)
     seasonal[SEASONAL_SLOT[l]] = l;
-  uint32_t sky4 = s.rgb[C_SKY + 4], fog = s.rgb[C_FOG];
+  uint32_t sky4 = sky_at(s, 4), fog = s.rgb[C_FOG];
   bool wet = n.rain && !n.white;
   // The birch leafs out in mid May, is summer green from mid June, yellow from mid September and loses its last
   // leaves by late October. Up north it's later in spring and earlier in autumn, two days a degree.
@@ -427,7 +434,7 @@ static void colours(Scene &s, const Now &n, const Day &d) {
   slot(s, S_BIRCH_TWIG) = h.birch_keep < 255 ? slot(s, S_BLACK) : slot(s, S_BIRCH);  // its branches show when bare
   slot(s, S_SPILL) = s.window_lit ? mix(slot(s, S_HEATH_NEAR), 0xFFB45A, 0.3f) : slot(s, S_HEATH_NEAR);
   slot(s, S_WINDOW) =
-      s.window_lit ? s.rgb[C_WINDOW] : mix(slot(s, S_BLACK), mix(s.rgb[C_SKY + 2], 0x2A3440, 0.55f), n.light);
+      s.window_lit ? s.rgb[C_WINDOW] : mix(slot(s, S_BLACK), mix(sky_at(s, 2), 0x2A3440, 0.55f), n.light);
   // By day small things share a colour with something like them, so the 16 go to the sky and the land's shapes.
   // At night they keep the artboard's own.
   uint32_t white = s.rgb[C_WHITE];
@@ -476,7 +483,7 @@ static void bay(Scene &s, const Now &n, const Day &d) {
   Heath &h = s.heath;
   const Weather &w = n.w;
   if (d.bft == 0 && w.ok)  // calm, the bay's a mirror of the sky
-    slot(s, S_SEA_FAR) = mix(slot(s, S_SEA_FAR), s.rgb[C_SKY + 4], 0.15f * n.light);
+    slot(s, S_SEA_FAR) = mix(slot(s, S_SEA_FAR), sky_at(s, 4), 0.15f * n.light);
   // the sun's or moon's light on the bay
   if (s.moon && n.dark)
     s.shine_x = s.moon_x;
@@ -516,10 +523,10 @@ static void bay(Scene &s, const Now &n, const Day &d) {
     x += GROUND[i + 1];
   }
   // the sky in the waves' backs: the band a little lighter than the water
-  uint32_t &crest = s.rgb[C_CREST] = s.rgb[C_SKY + 4];
+  uint32_t &crest = s.rgb[C_CREST] = sky_at(s, 4);
   for (int i = 4; i >= 0; i--)
-    if (luma(s.rgb[C_SKY + i]) >= luma(slot(s, S_SEA_FAR)) + 25 && luma(s.rgb[C_SKY + i]) < luma(crest))
-      crest = s.rgb[C_SKY + i];
+    if (luma(sky_at(s, i)) >= luma(slot(s, S_SEA_FAR)) + 25 && luma(sky_at(s, i)) < luma(crest))
+      crest = sky_at(s, i);
   bool white = n.light > 0.5f && s.rgb[C_WHITE] != s.rgb[C_SUN];  // not the sun's yellow
   s.rgb[C_FOAM] = white ? s.rgb[C_WHITE] : s.rgb[C_SHINE];
   // Streaks in the air above it, from 3 m/s by day and 10 in the dark: dashed where the wind comes from, curling
@@ -534,7 +541,7 @@ static void bay(Scene &s, const Now &n, const Day &d) {
       h.streak_y[i] = (int16_t) (98 + i * 11 + st.in(-3, 3));
       h.streak_ph[i] = (uint8_t) st.in(0, 255);
     }
-    s.rgb[C_STREAK] = n.light > 0.5f ? s.rgb[C_WHITE] : mix(s.rgb[C_SKY + 3], 0xFFFFFF, 0.3f + 0.3f * n.light);
+    s.rgb[C_STREAK] = n.light > 0.5f ? s.rgb[C_WHITE] : mix(sky_at(s, 3), 0xFFFFFF, 0.3f + 0.3f * n.light);
   }
 }
 
@@ -556,7 +563,7 @@ static void people(Scene &s, const Now &n, const Day &d) {
   h.fig[h.nfig++] = F_DOG;
   h.lamp = n.sun.el < -3;  // the headlamp's on when it's getting dark
   s.rgb[C_LAMP] = rgb4(247, 249, 250);
-  s.rgb[C_LAMP_GLOW] = mix(s.rgb[C_SKY + 3], 0xDBE6EC, 0.35f);
+  s.rgb[C_LAMP_GLOW] = mix(sky_at(s, 3), 0xDBE6EC, 0.35f);
   s.keep.set(C_LAMP, h.lamp);
 }
 
@@ -577,14 +584,14 @@ void heath_ground(Scene &s, const Now &n, uint32_t seed) {
   s.cabin_y = (int16_t) art::DOOR_Y;
   s.win = {(int16_t) (WINDOW_X - 3), (int16_t) WINDOW_Y};
   s.home_x = (int16_t) HOME_X;
-  s.chimney = {(int16_t) CHIMNEY_X, (int16_t) (CHIMNEY_Y - 1)};
+  s.chimney = {(int16_t) art::CHIMNEY_X, (int16_t) (art::CHIMNEY_Y - 1)};
   s.pole_x = -1;
   // lit in the dark and with everyone in, until they go to bed at midnight; at Christmas and New Year all night
   s.window_lit = (n.sun.el < -3 || d.indoors) && (d.awake || n.xmas || n.newyear);
   s.rgb[C_WINDOW] = n.halloween ? rgb4(255, 140, 40) : 0xFFCC77;
   if (s.moon) {  // the artboard's moon has maria, and a halo round its glow
     s.rgb[C_CRATER] = mix(s.rgb[C_MOON], 0x93A1AD, 0.5f);
-    s.rgb[C_HALO] = mix(s.rgb[C_SKY + std::min(band_of(s.moon_y), 2)], s.rgb[C_MOON], 0.07f);
+    s.rgb[C_HEATH_HALO] = mix(s.rgb[C_SKY + band_of(s.moon_y)], s.rgb[C_MOON], 0.07f);
   }
   if (s.bolt) {  // out of the cloud down to the ridge
     int step = std::max(6, (RIDGE[std::clamp<int>(s.bolt_x[0], 0, W - 1)] + 4 - s.bolt_y[0]) / 6);
@@ -614,9 +621,9 @@ static void flag_pride(Scene &s, int x, int y) {
     box(s, x, y + 3 * k, 22, 3, ON_TOP, rgb4(STRIPES[k] >> 16, STRIPES[k] >> 8 & 255, STRIPES[k] & 255));
 }
 
-// Now and then, by day or night, in the light there is: a reindeer from the rock carvings in the ochre they're painted with, peeking out of
-// the trees behind the cabin or walking out of them over the hour, and a walrus swimming in the bay. Each hour
-// rolls its own, apart from the rest so nothing else moves. The show on the heath brings its own, see
+// Now and then, by day or night, in the light there is: a reindeer from the rock carvings in the ochre they're painted
+// with, peeking out of the trees behind the cabin or walking out of them over the hour, and a walrus swimming in the
+// bay. Each hour rolls its own, apart from the rest so nothing else moves. The show on the heath brings its own, see
 // met_live_heath.h.
 static void animals(Scene &s, const Now &n, const Day &d) {
   Rng a{(uint32_t) (n.t / 3600) * 2654435761u + 77};
@@ -662,10 +669,10 @@ void heath_life(Scene &s, const Now &n, Rng &rng) {
   s.puffs = (uint8_t) (n.valentine && !puffs ? 3 : puffs);
   h.nsmoke = puffs ? std::min(48, 6 + puffs * 8) : 0;
   h.smoke_w = (uint8_t) (n.o.fireplace ? 2 : 1);
-  s.rgb[C_SMOKE] = n.light > 0.5f ? s.rgb[C_WHITE] : mix(s.rgb[C_SKY + 2], 0xD8E2EA, 0.4f + 0.25f * n.light);
+  s.rgb[C_SMOKE] = n.light > 0.5f ? s.rgb[C_WHITE] : mix(sky_at(s, 2), 0xD8E2EA, 0.4f + 0.25f * n.light);
   float ph = rng.f() * 6.283f, lean = n.wdir * (1 + n.wind / 4) / 60.0f;
   for (int k = 0; k < h.nsmoke; k++)
-    h.smoke_x[k] = (int16_t) (CHIMNEY_X + lean * k * k + 1.5f * sinf(k / 4.0f + ph));
+    h.smoke_x[k] = (int16_t) (art::CHIMNEY_X + lean * k * k + 1.5f * sinf(k / 4.0f + ph));
   // The flag on flag days, or the rainbow flag on Pride day, on a pole by the cabin, flying above its roof and the
   // way the wind blows. The Norwegian blue is the top of the sky and the white white's, colours we have anyway.
   if (n.flag_up || d.pride_up) {
@@ -696,7 +703,7 @@ void heath_holidays(Scene &s, const Now &n, Rng &rng) {
       box(s, x, y, 2, 1, ON_TOP, cols[k % 3]);
     }
     s.nlights = 13;
-    s.star = {(int16_t) (CHIMNEY_X - 3), (int16_t) (CHIMNEY_Y - 9)};
+    s.star = {(int16_t) (art::CHIMNEY_X - 3), (int16_t) (art::CHIMNEY_Y - 9)};
     stamp_rows(stamp(s, s.star.x, s.star.y, 7, 7, ON_TOP, window), STAR7.row);
     s.tag = 0;
   }
@@ -726,7 +733,7 @@ void heath_holidays(Scene &s, const Now &n, Rng &rng) {
     s.tag = 0;
   }
   if (n.halloween) {  // a pumpkin by the door
-    int px = DOOR_X - 14, py = DOOR_Y - 5;
+    int px = art::DOOR_X - 14, py = art::DOOR_Y - 5;
     s.pumpkin = {(int16_t) px, (int16_t) py};
     blob(s, px, py, 7, 6, ON_LAND, rgb4(255, 130, 40));
     box(s, px - 1, py - 8, 3, 3, ON_LAND, dark);  // its stalk
@@ -736,21 +743,8 @@ void heath_holidays(Scene &s, const Now &n, Rng &rng) {
 }
 
 void heath_overlay(Scene &s, const Now &n) {
-  using namespace art;
-  // outline in the darkest colour already in the picture, if it's dark enough
-  uint32_t cand[] = {s.rgb[C_SKY], slot(s, S_MTN_A), slot(s, S_HEATH_FORE), slot(s, S_BLACK), s.rgb[C_SHADE + 2]};
-  uint32_t &out = s.rgb[C_OUTLINE] = cand[0];
-  for (uint32_t c : cand)
-    if (luma(c) < luma(out))
-      out = c;
-  if (luma(out) > 70)
-    out = rgb4(17, 17, 34);
-  if (n.w.wave >= 0) {  // and Oceanforecast's wave height, under the panel's date, at its left edge
-    char b[8];
-    snprintf(b, sizeof b, n.w.wave < 9.95f ? "%.1f m" : "%.0f m", n.w.wave);
-    s.heath.sea_text = true;
-    ov_text(s, SEA_TEXT_X, SEA_TEXT_BASE - (FONT_TINY.line_height - FONT_TINY.base_line), b, FONT_TINY);
-  }
+  // forecast marks: wave text drawn in forecast_marks(), from SEA_TEXT_X, SEA_TEXT_BASE, in FONT_TINY's place
+  s.heath.sea_text = n.w.wave >= 0;
 }
 
 // ---------------------------------------------------------------- drawing a row
@@ -771,7 +765,7 @@ static void disc(uint8_t *row, int y, int cx, int cy, int r, uint8_t c) {
 
 void heath_moon_row(const Scene &s, int y, uint8_t *out) {
   if (s.moon_glow) {
-    disc(out, y, s.moon_x, s.moon_y, MOON_HALO_R, s.ix[C_HALO]);
+    disc(out, y, s.moon_x, s.moon_y, MOON_HALO_R, s.ix[C_HEATH_HALO]);
     disc(out, y, s.moon_x, s.moon_y, MOON_GLOW_HR, s.ix[C_MOON_GLOW]);
   }
   int dy = y - s.moon_y, h = half(dy, MOON_R, MOON_R);
@@ -916,7 +910,7 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
       }
     }
   }
-  int d = CHIMNEY_Y - 1 - y;  // the smoke, thinning out at the top, unless the animations' puffs are there
+  int d = art::CHIMNEY_Y - 1 - y;  // the smoke, thinning out at the top, unless the animations' puffs are there
   if (!(s.live & L_SMOKE) && d >= 0 && d < h.nsmoke && (d < h.nsmoke * 2 / 3 || (d & 1)))
     span(out, h.smoke_x[d], h.smoke_x[d] + h.smoke_w - 1, ix[C_SMOKE]);
   if (s.pole_x >= 0 && y >= s.pole_top && y <= s.pole_base)  // the flagpole
@@ -958,7 +952,7 @@ void heath_drawn(const Scene &s, Colours &u) {
   for (int k = 1; k < art::SLOTS; k++)
     u.set(C_ART + k);
   u.set(C_CRATER, s.moon);
-  u.set(C_HALO, s.moon && s.moon_glow);
+  u.set(C_HEATH_HALO, s.moon && s.moon_glow);
   u.set(C_CREST, h.look.crest > 0);
   u.set(C_FOAM, h.look.cap || h.look.streak || h.surf > 0 || h.surf_rock > 0 || h.bft >= 11);
   u.set(C_SHINE, s.shine_x >= 0);

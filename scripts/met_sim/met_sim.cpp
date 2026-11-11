@@ -1,11 +1,13 @@
 // Draws the weather picture of packages/code/met for mocked weathers, wave heights, places, landscapes and days,
-// as met.h makes it: build(), what the animations leave out, palette(), the heath's fit, then the show that fits
-// it, run on overlay_mock.h's model of the panel. Writes each case's picture and the frames of its animation as
-// PPMs to OUT/<case>/, which render.py turns into PNGs, GIFs and a contact sheet. See run.sh.
+// as met.h makes it: build(), the forecast's marks, what the animations leave out, palette(), the heath's fit, then
+// the cast of acts that fits it, run on overlay_mock.h's model of the panel. Writes each case's picture and the
+// frames of its animation as PPMs to OUT/<case>/, with the forecast's marks drawn into the picture and over the
+// animations as marks.h's rasteriser has them, which render.py turns into PNGs, GIFs and a contact sheet. See run.sh.
 // --check runs each heath case for check_minutes without frames and checks that the kayak keeps to the water and
 // the dog's feet to the ground. --rare brings the rare encounter whose name has text two seconds in, whatever the
 // odds and whether or not it fits. --turn has the heath's visitors start at that turn: 0 the reindeer, 1 the
-// walrus, 2 the sea eagle, 3 the ravens.
+// walrus, 2 the sea eagle, 3 the ravens. --costs runs each act on its own and tells what it took of the panel.
+// The heath's files are used where the tree has them, so this builds on main's too.
 //   met_sim OUT [--only text] [--seconds 40] [--fps 10] [--no-anim] [--real-timers] [--check] [--lat 60.39
 //   --lon 5.32] [--rare text] [--turn n] [-v]
 #include <sys/stat.h>
@@ -14,14 +16,23 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#if __has_include("met_heath.h")
 #include "met_art.h"
 #include "met_heath.h"
-#include "met_live_shows.h"
+#define HAVE_HEATH 1
+#else
+#define HAVE_HEATH 0
+#endif
+#include "met_live_cast.h"
 #include "met_raster.h"
 
 using flexit::panel::civil_from_days;
 using flexit::panel::unix_of;
 using namespace flexit::panel::met;
+namespace marks = flexit::panel::marks;
+
+// The panel's motion step, ms: what met.yaml's loop gives live::loop() and overlay::step()
+static constexpr uint32_t STEP = 50;
 
 // Norway's UTC offset: CEST from 01:00 UTC on the last Sunday in March to the same in October
 static int norway(uint32_t t) {
@@ -49,6 +60,7 @@ struct Case {
 
 // clang-format off: a case a line
 static const Case CASES[] = {
+#if HAVE_HEATH
     // the heath through the weather and the bay by the Beaufort scale
     {"heath_calm_morning",  G_HEATH, 2026, 6, 14,  7, 30, "clearsky_day",         14,  5, 0,    0.2f, 180, 0.1f},
     {"heath_fair_forecast", G_HEATH, 2026, 7, 10, 13,  0, "fair_day",             18, 30, 0,    4,    200, 0.6f, 0, 0, true},
@@ -77,6 +89,7 @@ static const Case CASES[] = {
     {"heath_sankthans",     G_HEATH, 2026, 6, 23, 22,  0, "fair_night",           16, 20, 0,    2,   200, 0.3f},
     {"heath_halloween",     G_HEATH, 2026, 10, 31, 20, 0, "partlycloudy_night",    5, 40, 0,    5,   200, 0.9f},
     {"heath_valentine",     G_HEATH, 2026, 2, 14, 13,  0, "cloudy",                1, 80, 0,    3,   200, 0.5f, 0, 0, false, 0},
+#endif
     // panel's own landscapes, to compare
     {"hills_day",           G_HILLS, 2026, 7, 10, 13,  0, "fair_day",             18, 30, 0,    4,   200, -1, 0, 0, true},
     {"hills_dusk_moose",    G_HILLS, 2026, 9, 25, 19, 10, "partlycloudy_night",    9, 30, 0,    3,   300, -1},
@@ -103,10 +116,20 @@ static Weather weather_of(const Case &c, uint32_t t) {
   w.fog = c.fog;
   w.thunder = c.thunder;
   w.wave = c.wave;
-  for (int i = 0; i < HOURS; i++)  // the hours after drift a little
-    w.hour[w.hours++] = {w.time + 3600u * i, c.temp + 0.4f * i - 0.03f * i * i, icon_of(c.symbol),
-                         c.wind * (1 + 0.05f * (i % 4)), (int16_t) (((int) c.wind_from + 10 * i) % 360),
-                         c.wind * (1.5f + 0.1f * (i % 3))};
+  for (int i = 0; i < HOURS; i++) {  // the hours after drift a little
+    Hour &h = w.hour[w.hours++];
+    h.time = w.time + 3600u * i;
+    h.temp = c.temp + 0.4f * i - 0.03f * i * i;
+    h.icon = icon_of(c.symbol);
+    // where the hours have their own wind, as the forecast's arrows show it
+    [&](auto &hh) {
+      if constexpr (requires { hh.wind; }) {
+        hh.wind = c.wind * (1 + 0.05f * (i % 4));
+        hh.wind_from = (int16_t) (((int) c.wind_from + 10 * i) % 360);
+        hh.gust = c.wind * (1.5f + 0.1f * (i % 3));
+      }
+    }(h);
+  }
   return w;
 }
 
@@ -115,8 +138,8 @@ struct Args {
   int seconds = 40, fps = 10;
   bool anim = true, real_timers = false, check = false, costs = false;
   int check_minutes = 20;
-  std::string rare;  // an encounter to bring, see --rare
-  int turn = -1;     // the heath's visitor to start with
+  std::string rare;                // an encounter to bring, see --rare
+  int turn = -1;                   // the heath's visitor to start with
   double lat = 60.39, lon = 5.32;  // Bergen
 };
 
@@ -135,9 +158,9 @@ static void write_ppm(const std::string &path, const uint32_t *rgb) {
 }
 
 static Stamps stamps;
-static uint8_t ov[OV_H][W / 4];
 static Land land;
 static Scene scene;
+static marks::Layer layer;  // the forecast over the picture
 
 // The scene for c at sim::now_ms, its 16 colours and what the animations leave out, as met.h's draw() makes it
 static void draw(const Case &c, const Args &a, Options &o, const uint32_t *prev) {
@@ -145,13 +168,47 @@ static void draw(const Case &c, const Args &a, Options &o, const uint32_t *prev)
   Weather w = weather_of(c, t);
   o.frame++;
   scene.stamps = &stamps;
-  scene.ov = c.forecast ? ov : nullptr;
   scene.land = &land;
   build(scene, w, a.lat, a.lon, t, c.forecast, norway, o);
+  layer = forecast_marks(scene, w, t, norway);
   scene.live = live::leaves_out(scene);
   palette(scene, prev);
+#if HAVE_HEATH
   if (scene.ground == G_HEATH)
     heath_fit(scene, prev);
+#endif
+}
+
+// The marks the layer draws into the picture, the soft ones: shadows, lines, glows and boxes, as the JPEG gets them
+static void soft_marks(uint32_t *rgb) {
+  if (!marks::into_picture(layer))
+    return;
+  static marks::Soft soft;
+  static uint32_t under[W * H];
+  memcpy(under, rgb, sizeof under);
+  for (int y0 = 0; y0 < H; y0 += marks::BAND) {
+    marks::draw_soft(layer, [](int x, int y) { return under[y * W + x]; }, soft, y0);
+    for (int y = y0; y < std::min(H, y0 + marks::BAND); y++)
+      memcpy(rgb + y * W, soft.rgb + (y - y0) * W, W * sizeof *rgb);
+  }
+}
+
+// The sharp ones, text, dots and bitmaps, as the overlay in front of the animations shows them. The panel keeps each
+// ink to a few opacities, here they have their coverage as it is.
+static void sharp_marks(uint32_t *rgb) {
+  static marks::Sharp sharp;
+  for (int y0 = 0; y0 < H; y0 += marks::BAND) {
+    marks::draw_sharp(layer, sharp, y0);
+    for (int y = y0; y < std::min(H, y0 + marks::BAND); y++)
+      for (int x = 0; x < W; x++) {
+        uint32_t p = sharp.px[(y - y0) * W + x], a = p >> 24, &d = rgb[y * W + x], out = 0;  // premultiplied
+        if (!a)
+          continue;
+        for (int sh = 0; sh <= 16; sh += 8)
+          out |= std::min<uint32_t>(255, (p >> sh & 255) + (d >> sh & 255) * (255 - a) / 255) << sh;
+        d = out;
+      }
+  }
 }
 
 static void picture(uint32_t *rgb) {
@@ -165,6 +222,7 @@ static void picture(uint32_t *rgb) {
       ix[(size_t) y * W + x] = r[x];
     }
   }
+  soft_marks(rgb);
   flexit::panel::overlay::pic_parts.clear();
   for (const auto &p : parts_of(scene))
     if (p.colours && p.x0 < p.x1 && p.y0 < p.y1)
@@ -204,7 +262,8 @@ static void stats(int *colours, size_t *packed) {
     *colours += s;
 }
 
-// The copy of the show's animation n, null if there's none
+#if HAVE_HEATH
+// The copy of the act's animation n, null if there's none
 static flexit::panel::overlay::Copy *copy_of(const char *n, flexit::panel::overlay::Overlay **an = nullptr) {
   for (auto &p : flexit::panel::overlay::overlays)
     if (p.name == std::string("w_") + n)
@@ -232,7 +291,7 @@ static bool sea_at(int x, int y) {
   return false;
 }
 
-// Runs the heath's show for a while and checks where its characters are. False if one's wrong.
+// Runs the heath's act for a while and checks where its characters are. False if one's wrong.
 static bool check(const Case &c) {
   using namespace flexit::panel;
   if (live::heath_bay(scene) == live::HK_NONE && scene.heath.nfig < 3)
@@ -249,14 +308,12 @@ static bool check(const Case &c) {
   int dog_d = dog.y + dog.feet - legs_ground(dog.x);
   int steps = 0, wet = 0, kayak_bad = 0, dog_worst = 0;
   bool kayak = live::heath_bay(scene) == live::HK_KAYAK;
-  for (uint32_t end = sim::now_ms + 20 * 60000u; sim::now_ms < end; sim::now_ms += live::STEP) {
+  for (uint32_t end = sim::now_ms + 20 * 60000u; sim::now_ms < end; sim::now_ms += STEP) {
     live::loop(true);
-    overlay::step(live::STEP);
+    overlay::step(STEP);
     steps++;
-    if (overlay::Copy *k = kayak ? copy_of("hbay") : nullptr) {
-      int x = (int) lroundf(k->base[overlay::X]), y = (int) lroundf(k->base[overlay::Y]);
-      if (k->wave[overlay::Y].on)
-        y += (int) lroundf(overlay::wave_value(k->wave[overlay::Y]));
+    if (overlay::Copy *k = kayak ? copy_of("hbay") : nullptr) {  // where it is shown, its waves bound
+      int x = (int) lroundf(overlay::shown(*k, overlay::X)), y = (int) lroundf(overlay::shown(*k, overlay::Y));
       bool ok = true;
       for (int r = 12; r <= 14; r++)  // the hull and the stern, at the water
         for (int dx = 0; dx < 30; dx++)
@@ -266,11 +323,11 @@ static bool check(const Case &c) {
     }
     for (const char *n : live::DOG_NAMES)
       if (overlay::Copy *d = copy_of(n)) {
-        int x = (int) lroundf(d->base[overlay::X]), y = (int) lroundf(d->base[overlay::Y]);
+        int x = (int) lroundf(overlay::shown(*d, overlay::X)), y = (int) lroundf(overlay::shown(*d, overlay::Y));
         int ground = legs_ground(x) + dog_d;
         if (abs(y + dog.feet - ground) > dog_worst && sim::verbose)
-          printf("dog %s at %.1f,%.1f: feet %d, ground %d\n", n, d->base[overlay::X], d->base[overlay::Y], y + dog.feet,
-                 ground);
+          printf("dog %s at %.1f,%.1f: feet %d, ground %d\n", n, overlay::shown(*d, overlay::X),
+                 overlay::shown(*d, overlay::Y), y + dog.feet, ground);
         dog_worst = std::max(dog_worst, abs(y + dog.feet - ground));
       }
   }
@@ -280,33 +337,35 @@ static bool check(const Case &c) {
          "", steps, kayak_bad, wet, dog_worst, ok ? "ok" : "FAILED");
   return ok;
 }
+#endif
 
 static bool failed;
 
-// --costs: each show that fits the case's picture, the heath's aside, run on its own for seconds, and the most it
+// --costs: each act that fits the case's picture, the heath's aside, run on its own for seconds, and the most it
 // took of the panel at a time, so the heath knows what it can have next to its own
 static void costs(const Case &c, const Args &a) {
   namespace overlay = flexit::panel::overlay;
-  for (int i = 0; i < live::NSHOWS; i++) {
-    if (!live::SHOWS[i].fits(scene) || live::SHOWS[i].start == live::life_on_heath)
+  for (int i = 0; i < live::NACTS; i++) {
+    if (!live::ACTS[i].fits(scene) || !strcmp(live::ACTS[i].name, "Life on the heath"))
       continue;
     live::stop();
     overlay::reset();
-    live::R.show = i;
-    live::SHOWS[i].start(scene);
+    live::R.only = 1ull << i;
+    live::apply(scene);
     int places = 0, slots = 0;
     size_t bytes = 0;
-    for (uint32_t end = sim::now_ms + (uint32_t) a.seconds * 1000; sim::now_ms < end; sim::now_ms += live::STEP) {
+    for (uint32_t end = sim::now_ms + (uint32_t) a.seconds * 1000; sim::now_ms < end; sim::now_ms += STEP) {
       live::loop(true);
-      overlay::step(live::STEP);
+      overlay::step(STEP);
       size_t b = 0;
       places = std::max(places, overlay::copies_shown());
       slots = std::max(slots, overlay::slots_used(&b));
       bytes = std::max(bytes, b);
     }
-    printf("%-26s cost of %-36s %d places, %d slots, %5zu bytes of frames\n", c.name, live::SHOWS[i].name, places,
-           slots, bytes);
+    printf("%-26s cost of %-36s %d places, %d slots, %5zu bytes of frames\n", c.name, live::ACTS[i].name, places, slots,
+           bytes);
   }
+  live::R.only = ~0ull;
   live::stop();
   overlay::reset();
 }
@@ -331,7 +390,12 @@ static void run(const Case &c, const Args &a) {
   live::R.on = false;
   draw(c, a, o, nullptr);
   picture(rgb);
-  write_ppm(dir + "/picture.ppm", rgb);
+  {
+    static uint32_t with_marks[W * H];  // as the panel shows it, the sharp marks over the picture
+    memcpy(with_marks, rgb, sizeof with_marks);
+    sharp_marks(with_marks);
+    write_ppm(dir + "/picture.ppm", with_marks);
+  }
   int colours;
   size_t packed;
   stats(&colours, &packed);
@@ -341,15 +405,19 @@ static void run(const Case &c, const Args &a) {
   // and with them, as the panel shows it
   live::R.on = true;
   draw(c, a, o, pal);
-  int show = live::pick(scene);
   live::apply(scene);
+#if HAVE_HEATH
   if (a.turn >= 0)
     live::HEATH.turn = a.turn;
+#endif
+  std::string cast;  // the acts that are on
+  for (const live::On &on : live::R.cast)
+    cast += (cast.empty() ? "" : ", ") + std::string(on.name);
   if (!a.rare.empty())
     live::later(2000, [r = a.rare] {
       for (int k = 0; k < live::NRARE; k++)
         if (strstr(live::RARE[k].name, r.c_str())) {
-          bool fits = live::RARE[k].fits(live::SEEN), on = live::encounter(k, false);
+          bool fits = live::RARE[k].fits(live::SEEN), on = live::encounter(k);
           printf("%-26s %s: %s%s\n", "", live::RARE[k].name, on ? "on" : "no room",
                  fits ? "" : ", though it doesn't fit the picture now");
           return;
@@ -361,16 +429,18 @@ static void run(const Case &c, const Args &a) {
       if (live::R.timers[i].mean)
         live::R.timers[i].at = std::min(live::R.timers[i].at, sim::now_ms + 1500 + 6000 * (uint32_t) k++);
   printf("%-26s %-9s %2d colours, %5zu bytes packed%s  %s\n", c.name, GROUNDS[c.ground], colours, packed,
-         packed > 13824 ? " (too big, a JPEG)" : "", show >= 0 ? live::SHOWS[show].name : "no show");
+         packed > 13824 ? " (too big, a JPEG)" : "", cast.empty() ? "no act" : cast.c_str());
   if (a.costs) {
     costs(c, a);
     return;
   }
-  if (a.check && c.ground == G_HEATH && show >= 0 && !strcmp(live::SHOWS[show].name, "Life on the heath")) {
+#if HAVE_HEATH
+  if (a.check && c.ground == G_HEATH && live::on(live::act_of("Life on the heath"))) {
     failed |= !check(c);
     return;
   }
-  if (!a.anim || show < 0)
+#endif
+  if (!a.anim || live::R.cast.empty())
     return;
   picture(rgb);
   static uint32_t base[W * H];
@@ -380,11 +450,12 @@ static void run(const Case &c, const Args &a) {
   uint32_t next = sim::now_ms;
   for (int k = 0; k < frames;) {
     live::loop(true);
-    flexit::panel::overlay::step(live::STEP);
-    sim::now_ms += live::STEP;
+    flexit::panel::overlay::step(STEP);
+    sim::now_ms += STEP;
     if (sim::now_ms >= next) {
       memcpy(rgb, base, sizeof base);
       flexit::panel::overlay::draw(rgb, W, H);
+      sharp_marks(rgb);
       char f[32];
       snprintf(f, sizeof f, "/f%04d.ppm", k++);
       write_ppm(dir + f, rgb);
@@ -399,8 +470,8 @@ static void run(const Case &c, const Args &a) {
   FILE *f = fopen((dir + "/fps").c_str(), "w");
   fprintf(f, "%d\n", a.fps);
   fclose(f);
-  printf("%-26s %d s of animation, up to %d copies, %d of %d slots and %zu bytes of frames at a time\n", "",
-         a.seconds, most, slots, OVERLAY_SLOTS, bytes);
+  printf("%-26s %d s of animation, up to %d copies, %d of %d slots and %zu bytes of frames at a time\n", "", a.seconds,
+         most, slots, OVERLAY_SLOTS, bytes);
   for (auto &[name, px] : flexit::panel::overlay::wrapped)
     printf("%-26s %s drawn round the screen's edge, %d px\n", "", name.c_str(), px);
   if (sim::verbose)

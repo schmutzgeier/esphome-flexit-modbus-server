@@ -1,9 +1,11 @@
 // The weather scene for a place and a time, see met_scene.h
 #include "met_scene.h"
+#include <climits>
 #include <cstdio>
-#include "met_heath.h"
 #include <cstdlib>
 #include <cstring>
+#include "met_font.h"
+#include "met_heath.h"
 
 namespace flexit::panel::met {
 
@@ -100,29 +102,19 @@ static const struct {
              {ICON_FOG.row, nullptr}};
 static_assert(sizeof ICONS / sizeof *ICONS == I_FOG + 1, "a bitmap for each Icon");
 
-static void ov_put(Scene &s, int x, int y, int v) {
-  if (uint8_t *b = ov_byte(s, x, y))
-    *b = (uint8_t) ((*b & ~(3 << (x % 4 * 2))) | v << (x % 4 * 2));
-}
+// Which way the text and icons go on the screen, and how they're shadowed. fg is drawn after sh.
+struct Ink {
+  marks::Layer fg, sh;
+  uint32_t c, o;  // text, shadow
+};
 
 // The text's shadow, px down and right, as the panel's clock band has it
 static constexpr int SHADOW = 2;
 
-// A bitmap of w-bit rows scaled k times. Pass 1 draws its shadow, pass 2 the bitmap.
-template<typename T> static void ov_bitmap(Scene &s, int x0, int y0, const T *rows, int w, int h, int k, int pass) {
-  for (int r = 0; r < h; r++)
-    for (int c = 0; c < w; c++) {
-      if (!(rows[r] >> (w - 1 - c) & 1))
-        continue;
-      for (int dy = 0; dy < k; dy++)
-        for (int dx = 0; dx < k; dx++) {
-          int x = x0 + c * k + dx, y = y0 + r * k + dy;
-          if (pass == 2)
-            ov_put(s, x, y, 2);
-          else if (ov_get(s, x + SHADOW, y + SHADOW) != 2)  // not over what's drawn already
-            ov_put(s, x + SHADOW, y + SHADOW, 1);
-        }
-    }
+// A bitmap of cols bits, k times as big, and its shadow
+static void put(Ink &ink, int x, int y, const std::vector<uint64_t> &rows, int cols, int k) {
+  ink.sh.bitmap(x + SHADOW, y + SHADOW, rows, cols, k, ink.o);
+  ink.fg.bitmap(x, y, rows, cols, k, ink.c);
 }
 
 static const FontGlyph *glyph_of(const Font &f, char c) {
@@ -132,7 +124,7 @@ static const FontGlyph *glyph_of(const Font &f, char c) {
   return nullptr;
 }
 
-int ov_text_width(const char *t, const Font &f) {
+static int text_width(const char *t, const Font &f) {
   int w = 0;
   for (; *t; t++)
     if (const FontGlyph *g = glyph_of(f, *t))
@@ -140,15 +132,45 @@ int ov_text_width(const char *t, const Font &f) {
   return w;
 }
 
-void ov_text(Scene &s, int x, int y, const char *t, const Font &f) {
-  int base = y + f.line_height - f.base_line;  // the baseline's row, y is the line's top
-  for (int pass = 1; pass <= 2; pass++) {      // all shadows first, so they don't cut into the letters
-    int cx = x;
-    for (const char *p = t; *p; p++)
-      if (const FontGlyph *g = glyph_of(f, *p)) {
-        ov_bitmap(s, cx + g->x, base - g->y - g->h, FONT_ROWS + g->row, g->w, g->h, 1, pass);
-        cx += g->adv;
+// t in font f with the pen at x and the line's top at y
+static void text(Ink &ink, int x, int y, const char *t, const Font &f) {
+  int base = y + f.line_height - f.base_line;  // the baseline's row
+  int pen = x;
+  while (*t) {
+    // as many glyphs as fit 64 columns
+    int lo = INT_MAX, hi = INT_MIN, top = INT_MAX, bottom = INT_MIN, at = pen;
+    const char *end = t;
+    for (; *end; end++) {
+      const FontGlyph *g = glyph_of(f, *end);
+      if (!g)
+        continue;
+      if (g->w && g->h) {
+        int gx = at + g->x, gy = base - g->y - g->h;
+        if (std::max(hi, gx + g->w) - std::min(lo, gx) > 64 && hi > lo)
+          break;
+        lo = std::min(lo, gx);
+        hi = std::max(hi, gx + g->w);
+        top = std::min(top, gy);
+        bottom = std::max(bottom, gy + g->h);
       }
+      at += g->adv;
+    }
+    if (hi > lo) {
+      int cols = hi - lo;
+      std::vector<uint64_t> rows(bottom - top);
+      int p = pen;
+      for (const char *q = t; q < end; q++)
+        if (const FontGlyph *g = glyph_of(f, *q)) {
+          for (int r = 0; r < g->h && g->w; r++)
+            rows[base - g->y - g->h + r - top] |= (uint64_t) FONT_ROWS[g->row + r] << (cols - (p + g->x - lo) - g->w);
+          p += g->adv;
+        }
+      put(ink, lo, top, rows, cols, 1);
+    }
+    pen = at;
+    if (end == t)  // nothing taken (can't happen: a run always takes a glyph), but never loop
+      break;
+    t = end;
   }
 }
 
@@ -160,10 +182,9 @@ static void temp_text(char *b, size_t n, float t) {
       *b = '~';
 }
 
-static void ov_icon(Scene &s, int x, int y, Icon i, int k) {
+static void icon(Ink &ink, int x, int y, Icon i, int k) {
   auto one = [&](const uint32_t *b, int dx, int dy) {
-    for (int pass = 1; pass <= 2; pass++)
-      ov_bitmap(s, x + dx * k, y + dy * k, b, 9, 9, k, pass);
+    put(ink, x + dx * k, y + dy * k, std::vector<uint64_t>(b, b + 9), 9, k);
   };
   if (ICONS[i].cloud) {  // up and left, the cloud down and right
     one(ICONS[i].b, -1, -2);
@@ -175,8 +196,8 @@ static void ov_icon(Scene &s, int x, int y, Icon i, int k) {
 
 // Which way the wind blows, an arrow 9 by 9 drawn k times as big: a shaft and a solid head. from is where it comes
 // from, clockwise from north.
-static void ov_arrow(Scene &s, int x, int y, float from, int k) {
-  uint32_t rows[9] = {};
+static void arrow(Ink &ink, int x, int y, float from, int k) {
+  std::vector<uint64_t> rows(9);
   float a = (from + 180) * (float) kRad, ux = sinf(a), uy = -cosf(a);  // the way it points, up is north
   for (int r = 0; r < 9; r++)
     for (int c = 0; c < 9; c++) {
@@ -186,11 +207,10 @@ static void ov_arrow(Scene &s, int x, int y, float from, int k) {
       if (shaft || head)
         rows[r] |= 1u << (8 - c);
     }
-  for (int pass = 1; pass <= 2; pass++)
-    ov_bitmap(s, x, y, rows, 9, 9, k, pass);
+  put(ink, x, y, rows, 9, k);
 }
 
-int marks(const Weather &w, uint32_t t, Offset offset, int *at) {
+int hour_marks(const Weather &w, uint32_t t, Offset offset, int *at) {
   int k = 0;
   for (int i = 0; i < w.hours && k < 4; i++)
     if (w.hour[i].time > t && local_hour(w.hour[i].time, offset) % 3 == 0)
@@ -201,45 +221,87 @@ int marks(const Weather &w, uint32_t t, Offset offset, int *at) {
 // The gusts, when they're stronger than the wind as the overlay rounds it. 0 for none.
 static int gust_of(const Hour &h) { return iround(h.gust) > iround(h.wind) ? iround(h.gust) : 0; }
 
+// The shadow's colour: the darkest in the picture's sky and hills, if it's dark enough, else the clock band's
+static uint32_t shadow_of(const Scene &s) {
+  uint32_t cand[] = {s.rgb[C_SKY], s.rgb[C_HILL], s.rgb[C_HILL + 1], s.rgb[C_HILL + 2], s.rgb[C_SHADE + 2]};
+  auto luma = [](uint32_t c) { return (int) ((c >> 16 & 255) * 3 + (c >> 8 & 255) * 6 + (c & 255)) / 10; };
+  uint32_t out = cand[0];
+  for (uint32_t c : cand)
+    if (luma(c) < luma(out))
+      out = c;
+  return luma(out) > 70 ? rgb4(17, 17, 34) : out;
+}
+
 // Now at top left with the rain and the wind, the next four 3-hour marks at top right, each with its wind and in
 // brackets its gusts. In the clock band's Noto Sans: its 40 px for the temperature now, 16 px, 14 px and 12 px for
-// the rest.
-static void forecast(Scene &s, const Weather &w, uint32_t t, Offset offset) {
+// the rest. On the heath also Oceanforecast's wave height under the panel's date, on the coast right of the
+// lighthouse above the sea.
+marks::Layer forecast_marks(const Scene &s, const Weather &w, uint32_t t, Offset offset) {
+  marks::Layer l;
+  if (!s.overlay)
+    return l;
+  l.shadow = 0;  // the picture keeps its own 16 colours
+  Ink ink;
+  ink.c = rgb4(0xD4, 0xDC, 0xDE);  // the clock band's
+  ink.o = shadow_of(s);
   char b[16];
   Hour now = now_of(w, t);
-  ov_icon(s, 6, 7, now.icon != I_NONE ? now.icon : icon_of(w.symbol), 3);
+  icon(ink, 6, 7, now.icon != I_NONE ? now.icon : icon_of(w.symbol), 3);
   temp_text(b, sizeof b, now.temp);
-  ov_text(s, 46, 0, b, FONT_BIG);
+  text(ink, 46, 0, b, FONT_BIG);
   int wy = 40;                                 // the rain, then the wind: an arrow the way it blows and its speed
   if (now.time == w.time && w.rain >= 0.1f) {  // the rain is only known for the first hour
     snprintf(b, sizeof b, "%.1f mm", w.rain);
-    ov_text(s, 8, 40, b, FONT_MEDIUM);
+    text(ink, 8, 40, b, FONT_MEDIUM);
     wy = 58;
   }
-  ov_arrow(s, 8, wy + 1, now.wind_from, 2);
+  arrow(ink, 8, wy + 1, now.wind_from, 2);
   if (int g = gust_of(now))
     snprintf(b, sizeof b, "%d (%d) m/s", iround(now.wind), g);
   else
     snprintf(b, sizeof b, "%d m/s", iround(now.wind));
-  ov_text(s, 30, wy, b, FONT_MEDIUM);
-  int at[4], n = marks(w, t, offset, at);
+  text(ink, 30, wy, b, FONT_MEDIUM);
+  int at[4], n = hour_marks(w, t, offset, at);
   for (int col = 0; col < n; col++) {
     const Hour &h = w.hour[at[col]];
     int cx = W - 6 - (4 - col) * 40 + 20;  // middle of the column
     snprintf(b, sizeof b, "%02d", local_hour(h.time, offset));
-    ov_text(s, cx - ov_text_width(b, FONT_SMALL) / 2, 2, b, FONT_SMALL);
-    ov_icon(s, cx - 9, 22, h.icon, 2);
+    text(ink, cx - text_width(b, FONT_SMALL) / 2, 2, b, FONT_SMALL);
+    icon(ink, cx - 9, 22, h.icon, 2);
     temp_text(b, sizeof b, h.temp);
-    ov_text(s, cx - ov_text_width(b, FONT_MEDIUM) / 2 + 2, 40, b, FONT_MEDIUM);
-    ov_arrow(s, cx - 17, 62, h.wind_from, 1);  // and the wind then, its gusts under it
+    text(ink, cx - text_width(b, FONT_MEDIUM) / 2 + 2, 40, b, FONT_MEDIUM);
+    arrow(ink, cx - 17, 62, h.wind_from, 1);  // and the wind then, its gusts under it
     snprintf(b, sizeof b, "%d", iround(h.wind));
-    ov_text(s, cx - 5, 59, b, FONT_SMALL);
+    text(ink, cx - 5, 59, b, FONT_SMALL);
     if (int g = gust_of(h)) {
-      int mid = cx - 5 + ov_text_width(b, FONT_SMALL) / 2;
+      int mid = cx - 5 + text_width(b, FONT_SMALL) / 2;
       snprintf(b, sizeof b, "(%d)", g);
-      ov_text(s, mid - ov_text_width(b, FONT_TINY) / 2, 75, b, FONT_TINY);
+      text(ink, mid - text_width(b, FONT_TINY) / 2, 75, b, FONT_TINY);
     }
   }
+  // On the heath Oceanforecast's wave height, 0.0 m too, under the panel's date at its left edge: one decimal under
+  // 10 m, none from there. The baseline is SEA_TEXT_BASE.
+  if (s.ground == G_HEATH && w.wave >= 0) {
+    snprintf(b, sizeof b, w.wave < 9.95f ? "%.1f m" : "%.0f m", w.wave);
+    text(ink, SEA_TEXT_X, SEA_TEXT_BASE - (FONT_TINY.line_height - FONT_TINY.base_line), b, FONT_TINY);
+  }
+  l.ops = std::move(ink.sh.ops);  // all shadows first, so none falls over a letter
+  l.ops.insert(l.ops.end(), std::make_move_iterator(ink.fg.ops.begin()), std::make_move_iterator(ink.fg.ops.end()));
+  // and on the coast the wave height, right of the lighthouse just above the sea, centred and outlined. Not when it
+  // would be 0.0 m, as it mostly is in the fjords.
+  if (s.ground == G_COAST && w.wave >= 0.05f) {
+    snprintf(b, sizeof b, w.wave < 9.95f ? "%.1fm" : "%.0fm", w.wave);
+    Ink wave;
+    wave.c = ink.c;
+    wave.o = ink.o;
+    text(wave, (LH_X + 5 + W) / 2 - (text_width(b, FONT_MEDIUM) + 1) / 2, s.sea_top - FONT_MEDIUM.line_height - 3, b,
+         FONT_MEDIUM);
+    for (marks::Op &o : wave.fg.ops) {  // one bitmap here, but two if it ever came wider than 64
+      o.outline = ink.o;
+      l.ops.push_back(std::move(o));
+    }
+  }
+  return l;
 }
 
 // ---------------------------------------------------------------- stamps
@@ -318,18 +380,34 @@ void flag_norway(Scene &s, int x, int y, int dir, uint32_t red, uint32_t white, 
     }
 }
 
-// The vimpel, a red pennant 9 rows tall at the pole and len long, with a white-blue-white stripe. It narrows to 5
-// rows, then the stripe ends and the red comes to a point. Points left when dir < 0.
-static void pennant(Scene &s, int x, int y, int len, int dir, uint32_t red, uint32_t white, uint32_t blue) {
-  Stamp *r = stamp(s, x, y, len, 9, ON_TOP, red), *w = stamp(s, x, y, len, 9, ON_TOP, white),
-        *b = stamp(s, x, y, len, 9, ON_TOP, blue);
-  for (int col = 0; col < len; col++) {
-    int hi = col == len - 1 ? 0 : col == len - 2 ? 1 : (int) (4 - 2.0f * col / (len - 3) + 0.5f);  // half height
-    for (int row = 4 - hi; row <= 4 + hi; row++) {
-      int d = abs(row - 4);
-      stamp_set(hi < 2 || d > 1 ? r : d ? w : b, dir < 0 ? len - 1 - col : col, row);
+// The vimpel from its hoist at x, y, len long and blown the way dir: a red pennant PENNANT_H rows tall at the pole
+// with a white-blue-white stripe, narrowing till the stripe ends and the red comes to a point. It stands straight out
+// from 6 m/s, and hangs the more the less it blows, most at its tip.
+static void pennant(Scene &s, int x, int y, int len, int dir, float wind, uint32_t red, uint32_t white, uint32_t blue) {
+  float hang = clamp01(1 - wind / 6) * 1.4f;  // radians down from level at its tip
+  int h = PENNANT_H + (int) ((float) len * sinf(hang));
+  Stamp *ink[] = {stamp(s, x, y, len, h, ON_TOP, red), stamp(s, x, y, len, h, ON_TOP, white),
+                  stamp(s, x, y, len, h, ON_TOP, blue)};
+  float px = 0, py = PENNANT_H / 2;
+  for (int i = 0; i < 2 * len; i++) {  // half a px at a time along it, and across it
+    int col = i / 2, hi = col == len - 1 ? 0 : col == len - 2 ? 1 : (int) (4 - 2.0f * col / (len - 3) + 0.5f);
+    float a = hang * (0.4f + 0.3f * i / len);
+    for (int d = -2 * hi; d <= 2 * hi; d++) {
+      int cx = (int) lroundf(px - d * sinf(a) / 2), cy = (int) lroundf(py + d * cosf(a) / 2);
+      int k = hi < 2 || abs(d) > 3 ? 0 : abs(d) > 1 ? 1 : 2;
+      for (int j = 0; j < 3 && ink[j] && cx >= 0 && cx < len && cy >= 0 && cy < h; j++)
+        ink[j]->rows[cy] = (ink[j]->rows[cy] & ~(1ull << (len - 1 - cx))) | (uint64_t) (j == k) << (len - 1 - cx);
     }
+    px += cosf(a) / 2;
+    py += sinf(a) / 2;
   }
+  for (int j = 0; dir < 0 && j < 3 && ink[j]; j++)  // blown left it's the mirror of that
+    for (int row = 0; row < h; row++) {
+      uint64_t bits = ink[j]->rows[row], back = 0;
+      for (int c = 0; c < len; c++)
+        back |= (bits >> c & 1) << (len - 1 - c);
+      ink[j]->rows[row] = back;
+    }
 }
 
 // The stamps' bitmaps
@@ -388,18 +466,52 @@ static void sky_colours(float el, uint32_t *top, uint32_t *bottom, uint32_t *glo
 static int sky_x(float az, float facing) { return (int) (wrap360(az - facing + 180) / 360 * W) % W; }
 static int sky_y(float el) { return HORIZON - (int) (el * (HORIZON - 26) / 55); }
 
-// 0 winter with snow on the ground, 1 winter without, 2 spring, 3 summer, 4 autumn
-static int season_of(int month, int day, bool white) {
+// How many days later spring comes than to Oslo, and autumn earlier: three for each degree north of 60
+static int days_north(double lat) { return (int) std::clamp((lat - 60) * 3, -9.0, 45.0); }
+
+// 0 winter with snow on the ground, 1 winter without, 2 spring, 3 summer, 4 autumn, by the day of the year: the
+// grass is green from 15 April in Oslo, it's summer from 10 June, autumn from 15 September and the grass is dead
+// from 15 November
+static int season_of(int doy, double lat, bool white) {
+  int late = days_north(lat);
   if (white)
     return 0;
-  int k = month * 100 + day;
-  if (k < 320 || k >= 1201)
+  if (doy < 105 + late || doy >= 319 - late)
     return 1;
-  if (k < 601)
+  if (doy < 161 + late / 2)
     return 2;
-  if (k < 901)
+  if (doy < 258 - late / 2)
     return 3;
   return 4;
+}
+
+static bool snowing(const Weather &w) {
+  return has(w, "snow") || has(w, "sleet") || (w.rain > 0.05f && !has(w, "rain") && w.temp <= 1);
+}
+
+bool snow_likely(const Weather &w, int month) {
+  bool winter = month == 12 || month <= 3;
+  return w.ok && ((w.temp <= 0 && snowing(w)) || (w.temp <= 1 && winter) || (w.temp <= -3 && (winter || month >= 11)));
+}
+
+void SnowCover::step(const Weather &w, uint32_t t) {
+  if (!w.ok)
+    return;
+  if (std::isnan(cm) || t < at || t - at > 12 * 3600) {
+    int year, month, day;
+    civil_from_days((int32_t) (t / 86400), &year, &month, &day);
+    cm = snow_likely(w, month) ? 5 : 0;
+  } else {
+    float hours = (float) (t - at) / 3600;
+    if (snowing(w))
+      cm += w.rain * hours * (w.temp <= 0 ? 1 : 0.4f);  // a mm of water is a cm of snow, less of it sleet
+    else
+      cm -= w.rain * hours * 0.3f;  // rain
+    if (w.temp > 0)
+      cm -= w.temp * hours * 0.1f;
+    cm = std::clamp(cm, 0.0f, 60.0f);
+  }
+  at = t;
 }
 
 // Official flag days from forskrift om bruk av statsflagget § 4 as month * 100 + day: New Year's Day, Princess
@@ -435,11 +547,15 @@ Now::Now(const Weather &weather, const Options &options, double la, double lo, u
   civil_from_days((int32_t) (local / 86400) - 1, &year, &m, &d);
   month = (uint8_t) m;
   day = (uint8_t) d;
-  white =
-      (w.ok && w.temp <= 0 && snow) || (w.ok && w.temp <= -3) || (w.ok && w.temp <= 1 && (month == 12 || month <= 2));
-  season = (uint8_t) season_of(month, day, white);
-  int doy = day_of_year(year, month, day), easter = easter_day_of_year(year);
+  int doy = day_of_year(year, month, day), easter = easter_day_of_year(year), late = days_north(lat);
+  white = std::isnan(o.snow_cm) ? snow_likely(w, month) : w.ok && o.snow_cm >= 1;
+  season = (uint8_t) season_of(doy, lat, white);
+  leaves = !white && doy >= 125 + late && doy < 298 - late;  // from 5 May to 25 October in Oslo
+  clock = local / 60;
   xmas = month == 12 && day >= 24 && day <= 26;
+  // Advent's first Sunday is three weeks before the last Sunday before Christmas Day, 27 November at the earliest
+  int xmas_day = day_of_year(year, 12, 25), sunday = (int) ((days_from_civil(year, 12, 25) + 4) % 7);
+  yule = month == 12 || (month == 1 && day <= 13) || doy >= xmas_day - (sunday ? sunday : 7) - 21;
   newyear = (month == 12 && day == 31 && hour >= 18) || (month == 1 && day == 1 && hour < 3);
   easter_days = doy >= easter - 3 && doy <= easter + 1;
   midsummer = month == 6 && day == 23 && hour >= 19;
@@ -476,8 +592,8 @@ static void sky(Scene &s, const Now &n) {
     top = mix(top, s.rgb[C_FOG], (n.fog - 60) / 80);
     bottom = mix(bottom, s.rgb[C_FOG], (n.fog - 60) / 60);
   }
-  static const float AT[5] = {0, 0.3f, 0.55f, 0.78f, 1};
-  for (int i = 0; i < 5; i++)
+  static const float AT[BANDS] = {0, 0.5f, 1};
+  for (int i = 0; i < BANDS; i++)
     s.rgb[C_SKY + i] = mix(top, bottom, AT[i]);
   float g = n.glow;
   if (g > 0.15f) {
@@ -485,8 +601,7 @@ static void sky(Scene &s, const Now &n) {
     s.glow_x = (int16_t) sky_x(n.sun.az, n.o.facing);
     s.glow_rx = (int16_t) (90 + 60 * g);
     s.glow_ry = (int16_t) (16 + 22 * g);
-    s.rgb[C_GLOW] = mix(s.rgb[C_SKY + 4], glow, 0.3f + 0.45f * g);
-    s.rgb[C_GLOW_OUT] = mix(s.rgb[C_SKY + 3], glow, 0.15f + 0.25f * g);
+    s.rgb[C_GLOW] = mix(s.rgb[C_LOW], glow, 0.3f + 0.45f * g);
   }
 }
 
@@ -500,9 +615,8 @@ static void sun_moon(Scene &s, const Now &n) {
       s.rgb[C_SUN] = mix(n.fog >= 60 ? s.rgb[C_FOG] : behind, 0xFFFFFF, 0.3f);  // a pale disc through cloud or fog
     } else {
       s.rgb[C_SUN] = n.sun.el < 6 ? mix(0xFF9A50, 0xFFE0A0, n.sun.el / 6) : rgb4(255, 246, 210);
-      s.sun_rings = true;
-      s.rgb[C_RING1] = mix(behind, s.rgb[C_SUN], 0.42f);
-      s.rgb[C_RING2] = mix(behind, s.rgb[C_SUN], 0.2f);
+      s.sun_halo = true;
+      s.rgb[C_HALO] = mix(behind, s.rgb[C_SUN], 0.4f);
     }
   }
   if (n.moon.el > 1 && n.sun.el < 10) {
@@ -516,7 +630,7 @@ static void sun_moon(Scene &s, const Now &n) {
     // No glow round a new moon or a thin crescent, which show little or no disc
     if (n.sun.el < -6 && n.grey < 0.6f && n.moon_phase > 0.1f && n.moon_phase < 0.9f) {
       s.moon_glow = true;
-      s.rgb[C_MOON_GLOW] = mix(s.rgb[C_SKY + std::min(band_of(s.moon_y), 2)], s.rgb[C_MOON], 0.16f);
+      s.rgb[C_MOON_GLOW] = mix(s.rgb[C_SKY + band_of(s.moon_y)], s.rgb[C_MOON], 0.16f);
     }
   }
 }
@@ -594,7 +708,7 @@ static void stars(Scene &s, const Now &n) {
   if (n.sun.el >= -7 || n.grey >= 0.85f)
     return;
   Rng r{0x5EED5u};
-  s.nstars = (int) ((n.sun.el < -12 ? 90 : 40) * (1 - n.cover / 100));
+  s.nstars = std::clamp((int) ((n.sun.el < -12 ? 90 : 40) * (1 - n.cover / 100)), 0, (int) std::size(s.star_x));
   for (int i = 0; i < s.nstars; i++) {
     s.star_x[i] = (int16_t) r.in(0, W - 1);
     s.star_y[i] = (int16_t) r.in(2, 132);
@@ -654,21 +768,20 @@ static void clouds(Scene &s, const Now &n) {
   }
   Rng r{w.time * 2654435761u + 7};
   uint32_t into_hour = w.ok && n.t > w.time ? n.t - w.time : n.t % 3600;
-  int made[3];  // clouds in each layer
   for (int l = 0; l < 3; l++) {
     // A layer moves a quarter of an hour's way at a time, each a third of that apart, so a redraw every five
     // minutes moves one layer and the rows only the others are in stay the same
     float minutes = floorf((into_hour / 60.0f + 5 * l) / 15) * 15;
     s.drift[l] = ((int) (minutes * (0.3f + w.wind * 0.12f) * (l + 1)) * n.wdir % FIELD + FIELD) %
                  FIELD;  // with the wind, as live
-    int count = (int) (layer[l] / 100 * (l == 0 ? 5 : 7) + 0.5f), first = s.nclouds;
+    int count = (int) (layer[l] / 100 * (l == 0 ? 5 : 7) + 0.5f);
     for (int k = 0; k < count && s.nclouds < (int) std::size(s.cloud); k++) {
       Cloud &c = s.cloud[s.nclouds];
       s.cloud_layer[s.nclouds++] = (uint8_t) l;
       int width = l == 0 ? r.in(60, 120) : l == 1 ? r.in(48, 86) : r.in(70, 128);
       c.x = (int16_t) ((k * FIELD) / count + r.in(-20, 20) + FIELD) % FIELD;
       c.base = (int16_t) (l == 0 ? r.in(20, 64) : l == 1 ? r.in(62, 102) : r.in(100, 146));
-      if (l == 0) {  // high ones are thin streaks
+      if (l == 0) {  // high ones are wisps, see wisp()
         c.n = (uint8_t) r.in(2, 3);
         for (int j = 0; j < c.n; j++)
           c.e[j] = {(int16_t) (width * (j + 1) / (c.n + 1) + r.in(-8, 8)), (int16_t) (c.base - r.in(0, 6)),
@@ -690,13 +803,10 @@ static void clouds(Scene &s, const Now &n) {
       }
       c.shade = (int16_t) (c.base - (c.base - c.top) * 26 / 100);
     }
-    made[l] = s.nclouds - first;
   }
-  // white for small things and the cabin's trim, borrowed so it doesn't cost one of the 16 colours
-  s.rgb[C_WHITE] = made[1] || made[2] ? s.rgb[C_LIT + 1]
-                   : made[0]          ? s.rgb[C_LIT]
-                   : s.sun            ? s.rgb[C_SUN]
-                                      : s.rgb[C_LIT + 1];
+  // white for small things, the cabin's trim and the pole: a fair day's cloud, so it mostly costs none of the 16
+  // colours
+  s.rgb[C_WHITE] = mix(0x353C56, 0xF6F8FB, n.light);
 }
 
 // The rainbow, rain and snow from under the clouds, not through them, and the bolt from there
@@ -707,11 +817,11 @@ static void precipitation(Scene &s, const Now &n) {
     int x = sky_x(n.sun.az + 180, n.o.facing);  // opposite the sun, kept whole on the screen
     s.rb_x = (int16_t) (x < RB_RX ? RB_RX : x > W - 1 - RB_RX ? W - 1 - RB_RX : x);
     s.rb_y = (int16_t) (HORIZON + n.sun.el * 1.6f);
-    uint32_t behind = s.rgb[C_SKY + 2];
+    uint32_t behind = s.rgb[C_LOW - 1];
     s.rgb[C_RB] = mix(behind, 0xE05050, 0.55f);
     s.rgb[C_RB + 1] = mix(behind, 0xE8D850, 0.55f);
     s.rgb[C_RB + 2] = mix(behind, 0x6090E0, 0.55f);
-    s.sun_rings = false;
+    s.sun_halo = false;
   }
   if (n.rain || n.snow || n.thunder) {
     int deck = 0;                          // lowest base of the middle and low clouds, for the columns between them
@@ -796,40 +906,15 @@ struct Skerry {
   int x, y, rx, ry;
 };
 
-// t in the forecast's font f, centred on cx with its line's top at y, as two stamps: its outline in o, then the
-// letters over it in c. None without room for both.
-static void stamp_text(Scene &s, int cx, int y, const char *t, const Font &f, uint32_t c, uint32_t o) {
-  int w = ov_text_width(t, f) + 1, h = f.line_height, x0 = cx - w / 2, base = h - f.base_line;
-  if (w + 2 > 64 || s.nstamps + 2 > STAMPS || s.nrows + 2 * h + 2 > STAMP_ROWS)
-    return;
-  Stamp *out = stamp(s, x0 - 1, y - 1, w + 2, h + 2, ON_TOP, o), *in = stamp(s, x0, y, w, h, ON_TOP, c);
-  int x = 0;
-  for (const char *p = t; *p; p++)
-    if (const FontGlyph *g = glyph_of(f, *p)) {
-      for (int r = 0; r < g->h; r++)
-        for (int col = 0; col < g->w; col++)
-          if (FONT_ROWS[g->row + r] >> (g->w - 1 - col) & 1) {
-            int px = x + g->x + col, py = base - g->y - g->h + r;
-            if (px < 0 || px >= w || py < 0 || py >= h)
-              continue;
-            stamp_set(in, px, py);
-            for (int dy = 0; dy <= 2; dy++)
-              for (int dx = 0; dx <= 2; dx++)
-                stamp_set(out, px + dx, py + dy);
-          }
-      x += g->adv;
-    }
-}
-
 // Sea to a rocky shore, a lighthouse on the point, and a sailboat off the coast on a fine day
 static void coast(Scene &s, const Now &n, Rng &h, Skerry *sk) {
   s.sea = true;
   s.sea_top = HORIZON + 1;
   s.lighthouse = true;  // 32 tall
   s.lh_y = (int16_t) (s.land->hill[1][LH_X] + 2);
-  s.rgb[C_LH] = mix(s.rgb[C_SKY + 4], 0xFFFFFF, n.light * 0.5f + 0.3f);
-  s.rgb[C_LH_BAND] = mix(mix(0x2A1418, 0x9A3426, n.light), s.rgb[C_SKY + 4], n.fog / 200);
-  if (n.dark && n.o.frame % 2 == 0)  // the lamp, lit every other redraw
+  s.rgb[C_LH] = mix(s.rgb[C_LOW], 0xFFFFFF, n.light * 0.5f + 0.3f);
+  s.rgb[C_LH_BAND] = mix(mix(0x2A1418, 0x9A3426, n.light), s.rgb[C_LOW], n.fog / 200);
+  if (n.dark)  // the lamp
     box(s, LH_X - 1, s.lh_y - 29, 3, 3, ON_TOP, WARM_LIGHT);
   for (int k = 0; k < 2; k++) {  // skerries, see skerries()
     int x = k ? h.in(140, 215) : h.in(20, 90);
@@ -839,8 +924,8 @@ static void coast(Scene &s, const Now &n, Rng &h, Skerry *sk) {
   s.boat = {(int16_t) bx, (int16_t) by};
   if (n.sun.el > 0 && n.wind < 10 && !n.rain && !n.snow && !n.thunder) {
     s.tag = L_BOAT;
-    box(s, bx - 5, by - 2, 11, 3, ON_WATER, s.rgb[C_HILL + 1]);
-    box(s, bx, by - 16, 1, 14, ON_WATER, s.rgb[C_HILL + 1]);
+    box(s, bx - 5, by - 2, 11, 3, ON_WATER, s.rgb[C_LH_BAND]);  // a hull as red as the lighthouse's band
+    box(s, bx, by - 16, 1, 14, ON_WATER, s.rgb[C_DARK]);
     Stamp *sail = stamp(s, bx + 1, by - 15, 8, 12, ON_WATER, s.rgb[C_LH]);  // white as the lighthouse and the waves
     for (int r = 0; r < 12; r++)
       for (int c = 0; c < r * 8 / 12; c++)
@@ -855,9 +940,9 @@ static void mountains(Scene &s, const Now &n) {
   s.sea_top = 160;
   s.ridge = true;
   s.snowline = (int16_t) (HORIZON - (n.white ? 20 : n.season == 3 ? 62 : 48));
-  s.rgb[C_SNOWCAP] = mix(mix(0x33445A, 0xF0F4F8, n.light), s.rgb[C_SKY + 3], 0.25f);
-  s.rgb[C_HILL] = mix(mix(0x1C2838, 0x5A6C7E, n.light), s.rgb[C_SKY + 4], 0.25f);
-  s.rgb[C_RIDGE] = mix(s.rgb[C_HILL], s.rgb[C_SKY + 3], 0.55f);
+  s.rgb[C_SNOWCAP] = mix(mix(0x33445A, 0xF0F4F8, n.light), s.rgb[C_LOW - 1], 0.25f);
+  s.rgb[C_HILL] = mix(mix(0x1C2838, 0x5A6C7E, n.light), s.rgb[C_LOW], 0.25f);
+  s.rgb[C_RIDGE] = mix(s.rgb[C_HILL], s.rgb[C_LOW - 1], 0.55f);
 }
 
 // A skyline on the middle ground, a park in front
@@ -886,17 +971,25 @@ static void city(Scene &s, const Now &n, Rng &h) {
     if (church < 0 || abs(b.x - 50) < abs(s.bld[church].x - 50))
       church = i;
   }
+  // the low ones are old town houses, plastered red, ochre or white under a pitched roof, and the church is white
+  for (int i = 0; i < s.nbld; i++) {
+    Bld &b = s.bld[i];
+    if (!b.back && i != tower && b.top >= 138)
+      b.kind = 4, b.paint = (uint8_t) (1 + (b.x + b.w) % 3);
+  }
   if (church >= 0 && church != tower) {
     s.bld[church].top = 146;
     s.bld[church].kind = 3;
+    s.bld[church].paint = 3;
   }
-  s.rgb[C_BLD] = mix(mix(0x1A1E2C, 0x5E6678, n.light), s.rgb[C_SKY + 4], 0.2f);
-  s.rgb[C_BLD_BACK] = mix(s.rgb[C_BLD], s.rgb[C_SKY + 4], 0.45f);
+  s.rgb[C_BLD] = mix(mix(0x1A1E2C, 0x5E6678, n.light), s.rgb[C_LOW], 0.2f);
+  s.rgb[C_BLD_BACK] = mix(s.rgb[C_BLD], s.rgb[C_LOW], 0.45f);
   s.rgb[C_BLD_EDGE] = mix(s.rgb[C_BLD], 0x000000, 0.35f);
+  s.rgb[C_OCHRE] = mix(mix(0x2A2418, 0xD8A850, n.light), s.rgb[C_LOW], 0.15f);
   // the road's asphalt, kerbs and Oslo's red bike lane, or packed snow over the markings
-  s.rgb[C_ROAD] = mix(mix(0x15171E, 0x484C56, n.light), s.rgb[C_SKY + 4], 0.1f);
-  s.rgb[C_KERB] = mix(mix(0x2A2E38, 0x9A9EA8, n.light), s.rgb[C_SKY + 4], 0.1f);
-  s.rgb[C_LANE] = mix(mix(0x2A1418, 0x9E4038, n.light), s.rgb[C_SKY + 4], 0.1f);
+  s.rgb[C_ROAD] = mix(mix(0x15171E, 0x484C56, n.light), s.rgb[C_LOW], 0.1f);
+  s.rgb[C_KERB] = mix(mix(0x2A2E38, 0x9A9EA8, n.light), s.rgb[C_LOW], 0.1f);
+  s.rgb[C_LANE] = mix(mix(0x2A1418, 0x9E4038, n.light), s.rgb[C_LOW], 0.1f);
   if (n.white) {
     s.rgb[C_KERB] = s.rgb[C_HILL + 1];
     s.rgb[C_ROAD] = s.rgb[C_LANE] = mix(s.rgb[C_HILL + 1], s.rgb[C_ROAD], 0.35f);
@@ -907,7 +1000,7 @@ static void city(Scene &s, const Now &n, Rng &h) {
     b.top = 86;
     b.kind = 2;
     s.antenna = {(int16_t) (b.x + b.w / 2 - 1), 86 - 14};
-    if (n.dark && n.o.frame % 2 == 0) {  // red light, every other redraw
+    if (n.dark) {  // its red light
       s.tag = L_ANTENNA;
       box(s, s.antenna.x, s.antenna.y, 3, 2, ON_TOP, rgb4(255, 48, 48));
       s.tag = 0;
@@ -918,7 +1011,7 @@ static void city(Scene &s, const Now &n, Rng &h) {
 // The sea's waves and the sun's or moon's reflection
 static void sea(Scene &s, const Now &n) {
   const Weather &w = n.w;
-  s.rgb[C_SEA] = mix(mix(0x0C1C30, 0x2C5C8C, n.light), s.rgb[C_SKY + 4], 0.35f);
+  s.rgb[C_SEA] = mix(mix(0x0C1C30, 0x2C5C8C, n.light), s.rgb[C_LOW], 0.35f);
   if (s.rgb[C_SEA] == s.rgb[C_HILL + 1])  // a cloudy night rounds both the same, a step bluer keeps the shore
     s.rgb[C_SEA] += 17;
   s.rgb[C_WAVE] = n.o.ground == G_MOUNTAINS ? s.rgb[C_SNOWCAP] : s.rgb[C_LH];
@@ -937,58 +1030,78 @@ static void sea(Scene &s, const Now &n) {
     s.shine_x = s.sun_x;
 }
 
-// The hills' colours for the season, light and fog, and the trees' on them
+// The hills' colours for the season, light and fog, the spruces' on them and the dark things'
 static void hill_colours(Scene &s, const Now &n) {
   // far, middle, near hills for each season_of()
   static const uint32_t HILLS[5][3] = {{0xA4B8CE, 0xC8D6E4, 0xE0EAF2},
-                                       {0x6C8CA8, 0x4C5C50, 0x303C34},
-                                       {0x6C8CA8, 0x6E9A58, 0x3E7040},
-                                       {0x6C8CA8, 0x486C60, 0x284434},
-                                       {0x6C8CA8, 0x7A6236, 0x5A4420}};
+                                       {0x6C8CA8, 0x887755, 0x665544},
+                                       {0x6C8CA8, 0x88BB66, 0x559944},
+                                       {0x6C8CA8, 0x669955, 0x447744},
+                                       {0x6C8CA8, 0xAA8844, 0x886633}};
   static const uint32_t BIRCH[5] = {0x8C9CAE, 0x8C9CAE, 0x9AD070, 0x6AA850, 0xE0B030};
   uint32_t night_c[3] = {0x223344u, 0x112233u, n.white ? 0x334455u : 0x111122u};
   for (int l = 0; l < 3; l++) {
     uint32_t &c = s.rgb[C_HILL + l];
     c = mix(night_c[l], HILLS[n.season][l], n.light);
+    if (l > 0 && !n.white)  // the grass is duller under cloud
+      c = mix(c, 0x333333, 0.3f * std::min(1.0f, n.grey) * n.light);
     if (l == 0)
-      c = mix(c, s.rgb[C_SKY + 4], 0.3f);
+      c = mix(c, s.rgb[C_LOW], 0.3f);
     if (n.fog > 15)
       c = mix(c, s.rgb[C_FOG], n.fog / 100 * (0.5f - l * 0.1f));
-    if (l > 0)
-      s.rgb[C_TREE + l - 1] = c;
   }
-  if (n.white) {  // dark spruces with snow on them, against the white
-    s.snow_trees = true;
-    s.rgb[C_TREE] = s.rgb[C_TREE + 1] = mix(0x18302A, 0x2E5240, n.light);
-  }
-  s.rgb[C_BIRCH] = mix(mix(0x223344, BIRCH[n.season], n.light), s.rgb[C_HILL + 2], n.fog / 200);
+  s.snow_trees = n.white;  // snow on the spruces, dark against the white as against the grass
+  float haze = n.fog / 200;
+  s.rgb[C_TREE + 1] = mix(mix(0x18302A, n.white ? 0x2E5240 : 0x244C38, n.light), s.rgb[C_FOG], haze);
+  s.rgb[C_TREE] = mix(s.rgb[C_TREE + 1], s.rgb[C_HILL], 0.25f);
+  s.rgb[C_DARK] = mix(mix(0x000011, 0x333344, n.light), s.rgb[C_FOG], haze);
+  s.rgb[C_BIRCH] = mix(mix(0x223344, BIRCH[n.season], n.light), s.rgb[C_HILL + 2], haze);
 }
 
-// Spruces and a few birches, the first nfront of them big in front and the rest small on the middle hills
+// A tree's half width where it's widest
+static int widest(int kind, int height) { return kind ? std::max(3, height / 4) : Spruce(height).wide; }
+
+// Spruces and a few birches, the first nfront of them big in front and the rest small on the middle hills, none
+// standing in another of its hill
 static void trees(Scene &s, const Now &n, Rng &h, int count, int nfront) {
   const uint8_t (*hill)[W] = s.land->hill;
+  // the tall spruce with the lights at Christmas, at the edge of the clearing in the gap, past the flag in town
+  int xmas_x = s.home_x + (s.cabin ? EAVES_L - 18 : 62), xmas_half = Spruce(40).wide + 1;
   for (int i = 0; i < count; i++) {
-    bool front = i < nfront, birch = i % 5 == 3;
-    int x = h.in(0, W - 1), l = front ? 2 : 1;
-    if (front && x > s.home_x - 36 && x < s.home_x + 44)  // keep a clearing around home
-      x = (x + W / 2) % W;
-    if (!front && s.pole_x >= 0 && abs(x - s.pole_x) < 12)  // and the flag clear of a crown behind it
-      x = (x + W / 2) % W;
-    if (birch)  // a whole crown, not half of one at an edge
-      x = std::clamp(x, 8, W - 9);
-    // the tall one with the lights, at the edge of the clearing in the gap, past the flag in town
-    bool xmas_spruce = n.xmas && i == nfront - 1;
+    bool front = i < nfront, birch = i % 5 == 3, xmas_spruce = n.yule && i == nfront - 1;
+    int x = h.in(0, W - 1), l = front ? 2 : 1, height = front ? h.in(18, 40) : h.in(8, 16);
+    int kind = birch && !xmas_spruce ? (n.leaves ? 1 : 2) : 0;  // every fifth a birch, bare out of leaf
+    auto taken = [&](int at) {
+      // a clearing around home, the cabin with its pole or the park's, and the Christmas spruce's place free
+      if (front && ((at > s.home_x + (s.cabin ? EAVES_L - 20 : -36) && at < s.home_x + (s.cabin ? EAVES_R + 28 : 44)) ||
+                    abs(at - xmas_x) < xmas_half + widest(kind, height)))
+        return true;
+      // no top up over the cabin's roof, nor a crown behind the flag
+      if (!front && s.pole_x >= 0 && at > (s.cabin ? s.cabin_x + EAVES_L - 6 : s.pole_x - 12) && at < s.pole_x + 12)
+        return true;
+      for (int k = 0; k < s.ntrees; k++) {  // its middle within another's width, or the other's within its own
+        const Tree &o = s.tree[k];
+        if (o.layer == l && abs(o.x - at) <= std::max(widest(kind, height), widest(o.kind, o.base - o.top)))
+          return true;
+      }
+      return false;
+    };
+    for (int tries = 0; tries < W && !xmas_spruce; tries++, x = (x + 53) % W) {
+      if (birch)  // a whole crown, not half of one at an edge
+        x = std::clamp(x, 8, W - 9);
+      if (!taken(x))
+        break;
+    }
     if (xmas_spruce)
-      x = s.home_x + (s.cabin ? -32 : 62);
+      x = xmas_x, height = 40;
     Tree &t = s.tree[s.ntrees++];
     t.x = (int16_t) x;
     t.base = (int16_t) (s.nbld && xmas_spruce ? ROAD_FAR - 1 : hill[l][x] + 3);
-    int height = front ? h.in(18, 40) : h.in(8, 16);
-    if (s.nbld)  // the city's park under its road, the Christmas tree by it
+    if (s.nbld && !xmas_spruce)  // the city's park under its road, the Christmas tree by it
       height = std::min(height, t.base - ROAD_NEAR - 2);
-    t.top = (int16_t) (t.base - (xmas_spruce ? 40 : height));
+    t.top = (int16_t) (t.base - height);
     t.layer = (uint8_t) l;
-    t.kind = (uint8_t) (birch && !xmas_spruce ? (n.season <= 1 ? 2 : 1) : 0);  // every fifth a birch, bare in winter
+    t.kind = (uint8_t) kind;
   }
 }
 
@@ -1009,7 +1122,7 @@ static int tree_hw(const Scene &s, int i, int y) {
   if (d < 0)
     return -1;
   if (t.kind == 0)
-    return spruce_hw(d);
+    return Spruce(t.base - t.top).hw(d);
   Crown c = crown_of(s, i);
   return d >= c.rows ? 1 : t.kind == 1 ? c.rx : 1 + d / 5;
 }
@@ -1025,7 +1138,7 @@ static void skerries(Scene &s, const Skerry *sk) {
         hidden |= hw >= 0 && abs(e.x - s.tree[i].x) <= hw + e.rx + 1;
       }
     if (!hidden)
-      blob(s, e.x, e.y, e.rx, e.ry, ON_WATER, s.rgb[C_HILL + 1]);
+      blob(s, e.x, e.y, e.rx, e.ry, ON_WATER, s.rgb[C_DARK]);
   }
 }
 
@@ -1050,7 +1163,7 @@ static void ground(Scene &s, const Now &n) {
   }
   hill_colours(s, n);
   s.cabin = true;
-  s.cabin_x = (int16_t) (CABIN_X + h.in(-8, 8));
+  s.cabin_x = (int16_t) (CABIN_X + h.in(-4, 4));
   int ntrees = (int) std::size(s.tree), nfront = 11;
   Skerry sk[2];
   if (n.o.ground == G_COAST) {
@@ -1066,15 +1179,17 @@ static void ground(Scene &s, const Now &n) {
   }
   if (s.sea)
     sea(s, n);
-  s.cabin_y = (int16_t) (land.hill[2][s.cabin_x] + 6);
-  s.win = {(int16_t) (s.cabin_x - 9), (int16_t) (s.cabin_y - 12)};
+  s.cabin_y = 0;  // its foundation in the near hill all the way along
+  for (int x = s.cabin_x + CABIN_L; x <= s.cabin_x + CABIN_R; x++)
+    s.cabin_y = std::max<int16_t>(s.cabin_y, (int16_t) (land.hill[2][x] + 3));
+  s.win = {(int16_t) (s.cabin_x - 22), (int16_t) (s.cabin_y - 16)};
   // flagpole by the cabin, or by the city's road on flag days, where the flag shows beside the clock either way it
   // blows
   int park = h.in(GAP_L + 20, GAP_L + 36);
   // The city's pole stands all day. The cabin's is far enough off for the flag to clear the chimney's smoke.
-  s.pole_x = (int16_t) (s.cabin ? s.cabin_x + 28 : n.flag_day ? park : -1);
+  s.pole_x = (int16_t) (s.cabin ? s.cabin_x + EAVES_R + 8 : n.flag_day ? park : -1);
   s.pole_base = (int16_t) (s.cabin ? s.cabin_y - 2 : ROAD_FAR - 1);
-  s.pole_top = (int16_t) (s.pole_base - 48);
+  s.pole_top = (int16_t) (s.pole_base - (s.cabin ? POLE_H : 48));
   s.home_x = (int16_t) (s.cabin ? s.cabin_x : park - 24);
   if (n.o.ground == G_CITY && n.dark) {  // a street lamp on its post by the road
     int lx = park - 14, ly = ROAD_FAR - 10;
@@ -1092,6 +1207,8 @@ static void ground(Scene &s, const Now &n) {
   s.window_lit = n.sun.el < -3 && ((n.hour >= 6 && n.hour < 23) || n.xmas || n.newyear);  // asleep after eleven
   s.rgb[C_WINDOW] = n.halloween ? rgb4(255, 140, 40) : WARM_LIGHT;
   s.rgb[C_CABIN] = mix(mix(0x2A1418, 0x9A3426, n.light), s.rgb[C_HILL + 2], n.fog / 200);  // falu red
+  s.gable_lit = s.sun_x < s.cabin_x;
+  s.rgb[C_CABIN_SHADE] = mix(s.rgb[C_CABIN], 0x2A1418, s.sun && s.sun_halo ? 0.3f : 0);
   fog_edges(s, n, ph[7]);
 }
 
@@ -1103,7 +1220,7 @@ static void life(Scene &s, const Now &n, Rng &rng) {
     int count = rng.in(2, 5), bx = rng.in(20, W - 60), by = rng.in(40, 100);
     for (int i = 0; i < count; i++) {
       int x = bx + i * 11 + rng.in(-2, 2), y = by + (i % 2 ? 4 : 0) + rng.in(-1, 1);
-      stamp_rows(stamp(s, x, y, 7, 3, IN_SKY, s.rgb[C_TREE]), BIRD.row);
+      stamp_rows(stamp(s, x, y, 7, 3, IN_SKY, s.rgb[C_DARK]), BIRD.row);
     }
   }
   if (n.halloween && n.dark) {  // bats, around the moon if it's up, else low where the sky is lighter
@@ -1128,11 +1245,11 @@ static void life(Scene &s, const Now &n, Rng &rng) {
   if (n.midsummer)
     puffs = 0;
   s.puffs = (uint8_t) puffs;
-  int cx = s.cabin ? s.cabin_x + 9 : s.home_x, cy = s.cabin ? s.cabin_y - 32 : s.pole_base - 10;
+  int cx = s.cabin ? s.cabin_x + CHIMNEY_X : s.home_x, cy = s.cabin ? s.cabin_y - CABIN_TOP - 1 : s.pole_base - 10;
   if (!s.cabin)  // in town from the roof of the near building over home
     for (int i = 0; i < s.nbld; i++)
       if (!s.bld[i].back && cx >= s.bld[i].x && cx < s.bld[i].x + s.bld[i].w)
-        cy = s.bld[i].top - 2;
+        cy = s.bld[i].top - ROOF_UP[s.bld[i].kind] - 2;
   s.chimney = {(int16_t) cx, (int16_t) cy};
   s.tag = L_SMOKE;
   for (int i = 0; i < puffs; i++) {
@@ -1152,7 +1269,7 @@ static void life(Scene &s, const Now &n, Rng &rng) {
     flag_norway(s, n.wdir < 0 ? fx - 23 : fx + 2, fy, n.wdir, mix(0x601418, 0xEF2B2D, n.light), white, blue);
   } else if (s.cabin) {
     int len = std::min(PENNANT_MAX, 18 + 2 * (int) w.wind);
-    pennant(s, n.wdir < 0 ? fx - len - 1 : fx + 2, fy, len, n.wdir, s.rgb[C_CABIN], white, blue);
+    pennant(s, n.wdir < 0 ? fx - len - 1 : fx + 2, fy, len, n.wdir, w.wind, s.rgb[C_CABIN], white, blue);
   }
   s.tag = 0;
 }
@@ -1173,7 +1290,7 @@ static void xmas_lights(Scene &s) {
   Rng lt{77};
   s.tag = L_XMAS;
   for (int k = 0; k < count; k++) {
-    int d = 7 + (t.base - t.top - 9) * k / count, hw = spruce_hw(d);
+    int d = 7 + (t.base - t.top - 9) * k / count, hw = Spruce(t.base - t.top).hw(d);
     int out = lt.in(hw / 3, hw), lx = k % 2 ? t.x + out - 1 : t.x - out;
     s.light[k] = {(int16_t) lx, (int16_t) (t.top + d), (uint8_t) (k % 3)};
     box(s, lx, t.top + d, 2, 2, ON_TOP, cols[k % 3]);
@@ -1201,6 +1318,8 @@ static void eggs(Scene &s, const Now &n) {
   Rng eg{(uint32_t) n.year * 7u};
   for (int i = 0; i < (int) std::size(s.egg); i++) {
     int x = GAP_L + 30 + i * 14 + eg.in(-3, 3), y = s.land->hill[2][x] + 12 + eg.in(0, 8);
+    if (s.cabin)  // below its foundation
+      y = std::max(y, s.cabin_y + 8);
     s.egg[s.neggs++] = {(int16_t) x, (int16_t) y};
     blob(s, x, y, 4, 5, ON_LAND, cols[i % 3]);
     Stamp *stripes = stamp(s, x - 3, y - 2, 7, 4, ON_LAND, s.rgb[C_WHITE]);  // both in one, stamps are scarce at Easter
@@ -1209,11 +1328,11 @@ static void eggs(Scene &s, const Now &n) {
   }
 }
 
-// The bonfire in the meadow below the cabin, its flames up to the cabin's floor, or on the near hill in the middle of
-// the gap in town: its logs, its flames, sparks and smoke
+// The bonfire in the meadow down from the cabin's gable, over the date, or on the near hill in the middle of the gap
+// in town: its logs, its flames, sparks and smoke
 static void bonfire(Scene &s, const Now &n, Rng &rng) {
-  int bx = s.cabin ? s.cabin_x - 2 : (GAP_L + GAP_R) / 2;
-  int by = s.cabin ? std::min<int>(s.land->hill[2][bx] + 30, H - 8) : s.land->hill[2][bx] + 14;
+  int bx = s.cabin ? s.cabin_x + EAVES_L - 14 : (GAP_L + GAP_R) / 2;
+  int by = s.cabin ? std::min(s.cabin_y + 8, H - 22) : s.land->hill[2][bx] + 14;
   s.fire = {(int16_t) bx, (int16_t) by};
   box(s, bx - 9, by - 2, 19, 3, ON_TOP, s.rgb[C_DARK]);
   s.tag = L_BONFIRE;
@@ -1228,13 +1347,48 @@ static void bonfire(Scene &s, const Now &n, Rng &rng) {
   s.tag = 0;
 }
 
-// A pumpkin by the door, or in the park, its face cut out and dark inside, lit after dark
+// A pumpkin by the cabin's corner, or in the park, its face cut out and dark inside, lit after dark
 static void pumpkin(Scene &s) {
-  int px = s.cabin ? s.cabin_x - 22 : s.home_x + 36, py = (s.cabin ? s.cabin_y : s.land->hill[2][px] + 4) - 5;
+  int px = s.cabin ? s.cabin_x + EAVES_L - 9 : s.home_x + 36, py = (s.cabin ? s.cabin_y : s.land->hill[2][px] + 4) - 5;
   s.pumpkin = {(int16_t) px, (int16_t) py};
   blob(s, px, py, 7, 6, ON_LAND, rgb4(255, 130, 40));
-  box(s, px - 1, py - 8, 3, 3, ON_LAND, s.rgb[C_DARK]);  // its stalk
+  box(s, px - 1, py - 8, 3, 3, ON_LAND, s.rgb[C_TREE + 1]);  // its stalk
   stamp_rows(stamp(s, px - 5, py - 3, 11, 7, ON_TOP, rgb4(17, 17, 34)), FACE.row);
+}
+
+// Wood anemones in the meadow in front of home in spring, white specks in two patches, the same all season
+static void anemones(Scene &s, const Now &n) {
+  Rng r{(uint32_t) n.year * 31u + 5};
+  for (int k = 0; k < 2; k++) {
+    int x = GAP_L + 6 + k * 50, y = std::min((s.cabin ? s.cabin_y : s.land->hill[2][x] + 4) + 6, H - 13);
+    Stamp *p = stamp(s, x, y, 44, 12, ON_LAND, s.rgb[C_WHITE]);
+    for (int i = 0; p && i < 12; i++)
+      stamp_set(p, r.in(0, 43), r.in(0, 11));
+  }
+}
+
+// What stands about home in winter. From Advent till the twentieth day of Christmas the julenek on its pole, in the
+// meadow off the cabin's gable in front of the spruce with the lights, and strings of lights along the eaves from
+// dusk to dawn. A snowman once 8 cm of snow lie, by the cabin's door, and a snow lantern lit there on a snowy
+// evening. In town they stand in the park, below the road, and the lights are on the old houses.
+static void yard(Scene &s, const Now &n) {
+  // tall rows up from its foot: by the cabin at x from its middle, its foot down rows under its foundation, or in
+  // the park at px from home
+  auto stand = [&s](int x, int down, int px, int tall) {
+    int at = s.cabin ? s.cabin_x + x : s.home_x + px;
+    int foot =
+        s.cabin ? std::min(s.cabin_y + down, H - 3) : std::clamp(s.land->hill[2][at] + 14, ROAD_NEAR + 2 + tall, H - 3);
+    return Pt{(int16_t) at, (int16_t) (foot - tall)};
+  };
+  s.yule_lights = n.yule && n.sun.el < -3;
+  if (n.yule) {
+    s.nek = stand(EAVES_L - 9, 9, 34, NEK_UP);
+    s.rgb[C_STRAW] = mix(mix(0x4A4630, 0xD8B45A, n.light), s.rgb[C_HILL + 2], n.fog / 200);
+  }
+  if (n.white && (n.o.snow_cm >= 8 || (std::isnan(n.o.snow_cm) && n.month <= 2)))
+    s.snowman = stand(25, 12, 52, 10);
+  if (n.white && s.window_lit)
+    s.lantern = stand(13, 6, 66, 4);
 }
 
 // What the days bring to the picture
@@ -1245,7 +1399,10 @@ static void holidays(Scene &s, const Now &n, Rng &rng) {
       fireworks(s, n);
     return;
   }
-  if (n.xmas && n.dark)
+  yard(s, n);
+  if (n.season == 2)
+    anemones(s, n);
+  if (n.yule && n.dark)  // from Advent till the twentieth day
     xmas_lights(s);
   if (n.newyear && n.dark)
     fireworks(s, n);
@@ -1257,37 +1414,17 @@ static void holidays(Scene &s, const Now &n, Rng &rng) {
     pumpkin(s);
 }
 
-// The forecast over the picture, in white with an outline
-static void overlay(Scene &s, const Now &n, Offset offset) {
-  s.overlay = true;
-  memset(s.ov, 0, OV_H * sizeof *s.ov);
-  s.rgb[C_TEXT] = rgb4(0xD4, 0xDC, 0xDE);  // the clock band's
-  // outline in the darkest colour already in the picture, if it's dark enough
-  uint32_t cand[] = {s.rgb[C_SKY], s.rgb[C_HILL], s.rgb[C_HILL + 1], s.rgb[C_HILL + 2], s.rgb[C_SHADE + 2]};
-  auto luma = [](uint32_t c) { return (int) ((c >> 16) * 3 + (c >> 8 & 255) * 6 + (c & 255)) / 10; };
-  uint32_t &out = s.rgb[C_OUTLINE] = cand[0];
-  for (uint32_t c : cand)
-    if (luma(c) < luma(out))
-      out = c;
-  if (luma(out) > 70)
-    out = rgb4(17, 17, 34);
-  forecast(s, n.w, n.t, offset);
-  if (s.ground == G_HEATH)
-    heath_overlay(s, n);
-}
-
 void build(Scene &s, const Weather &w, double lat, double lon, uint32_t t, bool with_forecast, Offset offset,
            const Options &o) {
   Stamps *stamps = s.stamps;
-  uint8_t (*ov)[W / 4] = s.ov;
   Land *land = s.land;
   memset(&s, 0, sizeof s);
   s.stamps = stamps;
-  s.ov = ov;
   s.land = land;
   s.ground = o.ground;
+  s.overlay = with_forecast && w.ok;
   s.shine_x = -1;
-  s.chimney = s.fire = s.pumpkin = s.boat = s.antenna = s.star = {-1, -1};
+  s.chimney = s.fire = s.pumpkin = s.boat = s.antenna = s.star = s.nek = s.snowman = s.lantern = {-1, -1};
   Now n(w, o, lat, lon, t, offset(t));
   sky(s, n);
   sun_moon(s, n);
@@ -1300,17 +1437,8 @@ void build(Scene &s, const Weather &w, double lat, double lon, uint32_t t, bool 
   life(s, n, rng);
   holidays(s, n, rng);
   s.at = n;
-  if (with_forecast && w.ok && s.ov) {
-    overlay(s, n, offset);
-    // and on the coast Oceanforecast's wave height with it, right of the lighthouse just above the sea, as the
-    // forecast's text
-    if (s.ground == G_COAST && w.wave >= 0) {
-      char b[8];
-      snprintf(b, sizeof b, w.wave < 9.95f ? "%.1fm" : "%.0fm", w.wave);
-      stamp_text(s, (LH_X + 5 + W) / 2, s.sea_top - FONT_MEDIUM.line_height - 3, b, FONT_MEDIUM, s.rgb[C_TEXT],
-                 s.rgb[C_OUTLINE]);
-    }
-  }
+  if (s.overlay && s.ground == G_HEATH)
+    heath_overlay(s, n);
 }
 
 }  // namespace flexit::panel::met
