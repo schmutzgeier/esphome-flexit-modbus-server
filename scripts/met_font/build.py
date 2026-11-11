@@ -68,14 +68,24 @@ def main(fonts_dir, out):
             rows += bits
         tables.append((name, file, line_height, base_line, entries))
     w = []
-    w.append("// The weather overlay's characters, from the panel firmware's fonts: Noto Sans Medium as its clock band\n")
-    w.append("// has it. Made by scripts/met_font/build.py, don't edit. Plain C++ without ESPHome, see met_scene.h.\n")
+    w.append(
+        "// The weather overlay's characters, from the panel firmware's fonts: Noto Sans Medium as its clock band\n"
+    )
+    w.append(
+        "// has it. Made by scripts/met_font/build.py, don't edit. Plain C++ without ESPHome, see met_scene.h.\n"
+    )
     w.append("#pragma once\n#include <cstdint>\n\nnamespace flexit::panel::met {\n\n")
-    w.append("// A character: its advance, its box w x h, the box's offset from the pen (y up from the baseline), and\n")
+    w.append(
+        "// A character: its advance, its box w x h, the box's offset from the pen (y up from the baseline), and\n"
+    )
     w.append("// its rows in ROWS from row, leftmost pixel in the highest of w bits\n")
-    w.append("struct FontGlyph {\n  char c;\n  uint8_t adv, w, h;\n  int8_t x, y;\n  uint16_t row;\n};\n")
+    w.append(
+        "struct FontGlyph {\n  char c;\n  uint8_t adv, w, h;\n  int8_t x, y;\n  uint16_t row;\n};\n"
+    )
     w.append("struct Font {\n  const FontGlyph *glyphs;\n  uint8_t n;\n")
-    w.append("  uint8_t line_height, base_line;  // base_line up from the line's bottom\n};\n\n")
+    w.append(
+        "  uint8_t line_height, base_line;  // base_line up from the line's bottom\n};\n\n"
+    )
     w.append("// clang-format off: generated\n")
     w.append(f"inline constexpr uint32_t FONT_ROWS[{len(rows)}] = {{\n")
     for i in range(0, len(rows), 8):

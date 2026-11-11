@@ -376,7 +376,10 @@ def main():
     (lx, ly), (rx, ry) = spots["EAVE_L"], spots["EAVE_R"]
     for y in range(ly, ry + 1):
         for x in range(lx, W):
-            if slot[y, x] == S["CABIN_WALL"] and (y - ly) * (rx - lx) < (x - lx) * (ry - ly) + (rx - lx) // 2:
+            if (
+                slot[y, x] == S["CABIN_WALL"]
+                and (y - ly) * (rx - lx) < (x - lx) * (ry - ly) + (rx - lx) // 2
+            ):
                 slot[y, x] = S["BLACK"]
 
     gys = np.where((slot != 0).any(axis=1))[0]
