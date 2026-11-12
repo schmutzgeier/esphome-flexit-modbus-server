@@ -1137,13 +1137,13 @@ struct Compiler {
     if (n && !value(fine(*n, k), o))
       return false;
     std::vector<uint8_t> m = msg::bind(what, o.v);
-    for (auto &at : o.places)
-      at.at = (uint16_t) (at.at + OVERLAY_BIND_VALUE);
     unsigned to = what & ~OVERLAY_BIND_OP;
     bool reg = to >= OVERLAY_BIND_REG, script = to == OVERLAY_BIND_FRAME || reg;
     if (target) {
       if (o.regs || script)
         return fail("another copy's is bound by what it has itself, or what's shared");
+      for (auto &at : o.places)  // in the message, after its two bytes
+        at.at = (uint16_t) (at.at + OVERLAY_BIND_VALUE);
       return send(K_OVERLAY_BIND, std::move(m), {}, o.places);
     }
     if (!o.regs && !script && o.places.empty() && m.size() <= PBULK_MSG_MAX && tells(K_OVERLAY_BIND, m)) {
