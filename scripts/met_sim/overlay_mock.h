@@ -385,6 +385,11 @@ inline Overlay *want(const std::string &name) {
   const Source *s = source(name);
   if (!s)
     return nullptr;
+  // as overlay.h's start(): the source itself on the screen, whatever its copies' views do after
+  if (s->x < 0 || s->y < 0 || s->x + s->w * s->scale > PIC_MAX_W || s->y + s->h * s->scale > PIC_MAX_H) {
+    ESP_LOGW("panel", "Animation %s: doesn't fit on the screen at %d,%d", name.c_str(), s->x, s->y);
+    return nullptr;
+  }
   Overlay *a = nullptr;
   for (auto &o : overlays)
     if (o.name.empty() && !a)

@@ -117,7 +117,8 @@ inline void heath_motion_start(const Scene &s) {
   auto colours = light(col, [=](float v) {
     return v > foam ? top : v > 0.55f && v < 0.8f ? line - 4 * fabsf(v - 0.667f) : 0.0f;
   });
-  add_field("hsea", std::max(STREAK_W / 4, W / 3), (H - SEA_TOP) * 3, OVERLAY_FIELD_NOISE, 1, 5, colours);
+  // as tall as the screen at most: the panel takes no source bigger than it, whatever its copies' views do after
+  add_field("hsea", std::max(STREAK_W / 4, W / 3), std::min(H, (H - SEA_TOP) * 3), OVERLAY_FIELD_NOISE, 1, 5, colours);
   if (h.look.crest > 0)
     place("hsea", 0, 0, SEA_TOP, heath_crests(s), {}, {.fade = 1500, .depth = (uint8_t) (D_SEA + 1)});
   if (h.nstreaks > 0)
