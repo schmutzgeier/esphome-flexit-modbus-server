@@ -409,7 +409,11 @@ this order:
   hour), reindeer, lambs and a wagtail in spring, bullfinches at the julenek through Christmas, butterflies, a skier,
   birch leaves, drifting clouds and the town's windows and streets. The two change at different minutes, so one
   thing changes at a time, and what stays goes on as it was. `Panel Weather Feature` asks for one of them, which is
-  then on whenever it fits; `auto` leaves it to the draw. Of the two gulls or crows that fly back and forth, one
+  then on whenever it fits; `auto` leaves it to the draw. On the heath it also offers the heath's visitors as
+  features: `Reindeer on the heath`, `The walrus`, `Ravens over the heath`, `A sea eagle's catch` and `Sheep grazing`.
+  They're never drawn (in `auto` the visitors take turns inside "Life on the heath"), and asked for they come alone,
+  in the room of a visitor, also while everyone's in; the sheep stay as long as it's on, in place of the picture's
+  own. Of the two gulls or crows that fly back and forth, one
   comes down about every five minutes, against the wind: on the cabin's ridge, the flagpole, the lighthouse, a
   spruce's top or a flat roof in town, smaller on its way to one that's far off, and flies up again.
 - **Who comes by,** one at a time when the others leave room for one more: a squirrel or a magpie about the cabin,

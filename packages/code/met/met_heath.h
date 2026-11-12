@@ -51,6 +51,11 @@ int heath_parts(const Scene &s, HeathPart *out);
 // 2 under, the nearest such row with at least min px of it above the wave height. False if there's none.
 bool heath_open_water(int min, int &l, int &r, int &y);
 
+// The bay's water in each column from row SEA_TOP: the first row of it and the one after its last, H and 0 where there
+// is none. For the animation over it, so it keeps to the water.
+inline constexpr int HEATH_SEA_TOP = 158;
+void heath_water(uint8_t *top, uint8_t *bottom);
+
 // ---- for met.h
 
 // A storm, heavy rain and the forecast can be too much for the panel's memory as 16 colours. Then the rain thins

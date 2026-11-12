@@ -5,11 +5,12 @@
 // animations as marks.h's rasteriser has them, which render.py turns into PNGs, GIFs and a contact sheet. See run.sh.
 // --check runs each heath case for check_minutes without frames and checks that the kayak keeps to the water and
 // the dog's feet to the ground. --rare brings the rare encounter whose name has text two seconds in, whatever the
-// odds and whether or not it fits. --turn has the heath's visitors start at that turn: 0 the reindeer, 1 the
-// walrus, 2 the sea eagle, 3 the ravens. --costs runs each act on its own and tells what it took of the panel.
+// odds and whether or not it fits. --pin asks for the feature of that name, as the Panel Weather Feature select
+// does. --turn has the heath's visitors start at that turn: 0 the reindeer, 1 the walrus, 2 the sea eagle, 3 the
+// ravens. --costs runs each act on its own and tells what it took of the panel.
 // The heath's files are used where the tree has them, so this builds on main's too.
 //   met_sim OUT [--only text] [--seconds 40] [--fps 10] [--no-anim] [--real-timers] [--check] [--lat 60.39
-//   --lon 5.32] [--rare text] [--turn n] [-v]
+//   --lon 5.32] [--rare text] [--pin feature] [--turn n] [-v]
 #include <sys/stat.h>
 #include <cstdio>
 #include <cstdlib>
@@ -138,6 +139,7 @@ struct Args {
   int seconds = 40, fps = 10;
   bool anim = true, real_timers = false, check = false, costs = false;
   int check_minutes = 20;
+  std::string pin;                 // a feature to ask for, see --pin
   std::string rare;                // an encounter to bring, see --rare
   int turn = -1;                   // the heath's visitor to start with
   double lat = 60.39, lon = 5.32;  // Bergen
@@ -377,6 +379,7 @@ static void run(const Case &c, const Args &a) {
   uint32_t local = unix_of(c.y, c.mo, c.d, c.h, c.mi);
   sim::utc0 = local - (uint32_t) norway(local - 3600);
   sim::now_ms = 1000;
+  live::ask_for(a.pin.empty() ? "auto" : a.pin.c_str());
   Options o;
   o.ground = c.ground;
   o.aurora = c.aurora;
@@ -504,6 +507,8 @@ int main(int argc, char **argv) {
       a.lat = atof(next());
     else if (s == "--lon")
       a.lon = atof(next());
+    else if (s == "--pin")
+      a.pin = next();
     else if (s == "--rare")
       a.rare = next();
     else if (s == "--turn")
@@ -522,7 +527,7 @@ int main(int argc, char **argv) {
       a.out = s;
     else {
       fprintf(stderr, "met_sim OUT [--only text] [--seconds 40] [--fps 10] [--no-anim] [--real-timers] [--lat --lon] "
-                      "[--rare text] [--turn n] [--list] [-v]\n");
+                      "[--rare text] [--pin feature] [--turn n] [--list] [-v]\n");
       return 2;
     }
   }

@@ -7,7 +7,9 @@
 #include <cstring>
 #include "met_live.h"
 #include "met_live_days.h"
+#include "met_heath_features.h"
 #include "met_live_heath.h"
+#include "met_heath_light.h"
 #include "met_live_land.h"
 #include "met_live_rare.h"
 #include "met_live_sky.h"
@@ -59,10 +61,12 @@ inline bool by_the_fire(const Scene &s) { return s.cabin && s.at.dark && s.windo
 // On the heath the cast is its own: while someone's out, "Life on the heath" alone, as the days and the weather stay
 // the picture's beside them; while everyone's in, only the sky's acts below. The heath's own art has the cabin, flag,
 // smoke, firelight and the like, so the cast's acts for the other grounds stay off it. Add a name to let another in.
-inline constexpr const char *HEATH_ACT = "Life on the heath";
+inline constexpr const char *HEATH_ACT = "Life on the heath", *HEATH_SEA_ACT = "Wind and waves on the heath";
 inline constexpr const char *HEATH_SKY[] = {"New Year's Eve", "The northern lights", "Light rain", "Gentle snowfall"};
 inline bool heath_allows(const Act &a, const Scene &s) {
-  if (!strcmp(a.name, HEATH_ACT))
+  if (!strcmp(a.name, HEATH_ACT) || !strcmp(a.name, HEATH_SEA_ACT))
+    return true;
+  if (heath_feature_named(a.name))  // the heath's own features fit whoever is out, see met_heath_features.h
     return true;
   if (s.heath.nfig > 0)
     return false;
@@ -113,7 +117,26 @@ inline const Act ACTS[] = {
     // 4 frames), and what the kayak's wander and face take: about 350 + 600 + 350. Check it against Panel Animation
     // Status and trim it to what the pool reports.
     {"Life on the heath", RESIDENT, L_HEATH, {3, 3, 1300}, life_on_heath,
-     [](const Scene &s) { return s.ground == G_HEATH && s.heath.nfig > 0; }, nullptr, heath_cast},
+     [](const Scene &s) { return s.ground == G_HEATH && s.heath.nfig > 0; }, nullptr, heath_cast, heath_light_room},
+    // The wind's streaks and the bay's crests, moving, on the heath whenever it has any: one field, two copies
+    {"Wind and waves on the heath", RESIDENT, L_HEATH_SEA, HEATH_SEA, heath_motion_start, heath_sea_fits,
+     heath_motion_redo, heath_motion_made_of},
+    // The heath's visitors, one at a time, as features of their own: asked for in the select, never by lot (their lots
+    // are 0), and on the heath alone. They take no room but the visitor's, see met_heath_features.h.
+    {"Reindeer on the heath", FEATURE, 0, {0, 0, 0}, heath_deer_feature,
+     [](const Scene &s) { return s.ground == G_HEATH; }, nullptr, heath_cast, nullptr, nullptr, heath_no_lots},
+    {"The walrus", FEATURE, 0, {0, 0, 0}, heath_walrus_feature,
+     [](const Scene &s) { return s.ground == G_HEATH && heath_walrus_ok(s); }, nullptr, heath_cast, nullptr, nullptr,
+     heath_no_lots},
+    {"Ravens over the heath", FEATURE, 0, {0, 0, 0}, heath_ravens_feature,
+     [](const Scene &s) { return s.ground == G_HEATH && heath_ravens_ok(s); }, nullptr, heath_cast, nullptr, nullptr,
+     heath_no_lots},
+    {"A sea eagle's catch", FEATURE, 0, {0, 0, 0}, heath_eagle_feature,
+     [](const Scene &s) { return s.ground == G_HEATH && heath_eagle_ok(s); }, nullptr, heath_cast, nullptr, nullptr,
+     heath_no_lots},
+    {"Sheep grazing", FEATURE, L_HEATH_SHEEP, {0, 0, 0}, heath_sheep_feature,
+     [](const Scene &s) { return s.ground == G_HEATH && heath_sheep_ok(s); }, nullptr, nullptr, nullptr, nullptr,
+     heath_no_lots},
     {"The lighthouse", RESIDENT, 0, {2, 2, 320}, lighthouse,
      [](const Scene &s) { return s.lighthouse && s.at.dark; }},
     {"The sailboat", RESIDENT, L_BOAT, {1, 1, 900}, sailboat, fine_at_sea},

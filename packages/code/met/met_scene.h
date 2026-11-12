@@ -83,7 +83,9 @@ enum : uint16_t {
   L_BONFIRE = 1 << 10,  // its flames, sparks and smoke, the logs stay
   L_ANTENNA = 1 << 11,  // its red light
   L_BOAT = 1 << 12,
-  L_HEATH = 1 << 13,  // the heath's people, dog, reindeer and walrus
+  L_HEATH = 1 << 13,        // the heath's people, dog, reindeer and walrus
+  L_HEATH_SEA = 1 << 14,    // the heath's wind streaks and the bay's moving crests, see met_heath_motion.h
+  L_HEATH_SHEEP = 1 << 15,  // the heath's sheep on the hill, see met_heath_features.h
 };
 // How far off things are, for the panel's K_PIC_PART and a copy's depth. The picture's parts are the land's layers,
 // each in front of the animations farther off than it. The forecast is in front of them all.

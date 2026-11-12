@@ -791,6 +791,8 @@ static uint8_t sea_px(const Scene &s, int x, int y, uint8_t base, bool near) {
   const Heath &hs = s.heath;
   const SeaLook &l = hs.look;
   uint8_t c = base, foam = s.ix[C_FOAM];
+  if (s.live & L_HEATH_SEA)  // the panel's crests and blown foam are over it
+    return c;
   if (l.streak && y % 3 == 0) {  // foam blown into long streaks along the wind
     int u = x + (int) hash8((uint32_t) y, 7, hs.sea_seed) % 16;
     uint32_t h = hash8((uint32_t) (u / 16), (uint32_t) y, hs.sea_seed);
@@ -835,7 +837,7 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
   using namespace art;
   const Heath &h = s.heath;
   const uint8_t *ix = s.ix;
-  for (int i = 0; i < h.nstreaks; i++) {  // the wind's streaks, a gentle wave along each
+  for (int i = 0; i < h.nstreaks && !(s.live & L_HEATH_SEA); i++) {  // the wind's streaks, a gentle wave along each
     int len = h.streak_len[i];
     for (int k = 0; k < len; k++) {
       int along = h.wind_dir > 0 ? k : len - 1 - k;  // 0 where the wind comes from
@@ -880,6 +882,15 @@ void heath_row(const Scene &s, int y, uint8_t *out) {
       int prev = i > r0 ? GROUND[i - 2] : -1, next = i + 2 < r1 ? GROUND[i + 2] : -1;
       for (; x < end; x++) {
         uint8_t c = k ? ix[C_ART + k] : out[x];
+        if ((k == S_SHEEP || k == S_SHEEP_DARK) && (s.live & L_HEATH_SHEEP)) {
+          // the sheep the animations draw are out of the picture: the hill beside each is what's under it
+          int under = k;
+          for (int j = i - 2; j >= r0 && (under == S_SHEEP || under == S_SHEEP_DARK); j -= 2)
+            under = GROUND[j];
+          for (int j = i + 2; j < r1 && (under == S_SHEEP || under == S_SHEEP_DARK); j += 2)
+            under = GROUND[j];
+          c = ix[C_ART + (under == S_SHEEP || under == S_SHEEP_DARK ? S_HEATH_MID : under)];
+        }
         if (k == S_BIRCH && h.birch_keep < 255 && hash8((uint32_t) x, (uint32_t) y, 5) >= h.birch_keep) {
           // through the bare twigs, what's behind
           int u = BIRCH_UNDER[(y - BIRCH_Y) * BIRCH_W + x - BIRCH_X];
@@ -953,10 +964,11 @@ void heath_drawn(const Scene &s, Colours &u) {
     u.set(C_ART + k);
   u.set(C_CRATER, s.moon);
   u.set(C_HEATH_HALO, s.moon && s.moon_glow);
-  u.set(C_CREST, h.look.crest > 0);
-  u.set(C_FOAM, h.look.cap || h.look.streak || h.surf > 0 || h.surf_rock > 0 || h.bft >= 11);
+  bool sea = s.live & L_HEATH_SEA;  // its crests, blown foam and streaks are the animation's
+  u.set(C_CREST, h.look.crest > 0 && !sea);
+  u.set(C_FOAM, (!sea && (h.look.cap || h.look.streak)) || h.surf > 0 || h.surf_rock > 0 || h.bft >= 11);
   u.set(C_SHINE, s.shine_x >= 0);
-  u.set(C_STREAK, h.nstreaks > 0);
+  u.set(C_STREAK, h.nstreaks > 0 && !sea);
   bool out = h.nfig > 0 && !(s.live & L_HEATH);
   u.set(C_FIG, out);
   bool lamp = false;
@@ -1024,6 +1036,23 @@ int heath_parts(const Scene &s, HeathPart *out) {
                 slots_of({C_ART + (int) S_BLACK}),
                 D_FRONT};
   return n;
+}
+
+void heath_water(uint8_t *top, uint8_t *bottom) {
+  using namespace art;
+  for (int x = 0; x < W; x++) {
+    top[x] = (uint8_t) H;
+    bottom[x] = 0;
+  }
+  for (int y = HEATH_SEA_TOP; y < H; y++)
+    for (int i = GROUND_ROW[y - GROUND_Y0], x = 0; i < GROUND_ROW[y - GROUND_Y0 + 1]; i += 2) {
+      if (GROUND[i] == S_SEA_FAR || GROUND[i] == S_SEA_NEAR)
+        for (int k = x; k < x + GROUND[i + 1] && k < W; k++) {
+          top[k] = (uint8_t) std::min<int>(top[k], y);
+          bottom[k] = (uint8_t) (y + 1);
+        }
+      x += GROUND[i + 1];
+    }
 }
 
 bool heath_open_water(int min, int &l, int &r, int &y) {

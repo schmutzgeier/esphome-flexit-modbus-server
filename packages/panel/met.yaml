@@ -7,7 +7,9 @@
 # 0 north, 90 east, 180 south (the default), 270 west. scene and aurora start the Panel Weather Scene and Aurora
 # selects; on auto the aurora shows when NOAA's Kp reaches what it takes where you are. "Panel Animation Weather"
 # brings it to life and takes the panel's animations, so turn your others off with it. "Panel Weather Feature" asks
-# for one of the features that otherwise take turns, which then is on whenever it fits. The weather now is also a
+# for one of the features that otherwise take turns, which then is on whenever it fits. On the heath the reindeer,
+# walrus, ravens, sea eagle's catch and sheep are such features too: in auto they come by inside the heath's own
+# life, asked for they come alone, also while everyone's in. The weather now is also a
 # tile under Display > Home screen > Dashboard tiles.
 # The heath scene is the cabin on the heath under the mountain (scripts/met_art). The climber runs the ridge in the
 # rain, the kayaker comes ashore and runs with waves over 2 m or wind over 12 m/s, with snow both are out on skis,
@@ -93,6 +95,11 @@ select:
       - "Drifting clouds"
       - "Evening in town"
       - "A day in town"
+      - "Reindeer on the heath"
+      - "The walrus"
+      - "Ravens over the heath"
+      - "A sea eagle's catch"
+      - "Sheep grazing"
     initial_option: "auto"
     optimistic: true
     restore_value: true

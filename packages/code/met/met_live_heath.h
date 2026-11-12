@@ -5,10 +5,17 @@
 // (L_HEATH).
 #pragma once
 #include "met_heath_live.h"
+#include "met_heath_motion.h"
 #include "met_live.h"
 #include "met_live_rare.h"
 
 namespace flexit::panel::met::live {
+
+inline bool heath_feature_on();  // met_heath_features.h
+
+inline Room heath_light_room(const Scene &s);
+inline uint32_t heath_light_cast(const Scene &s);
+inline void heath_lights_start(const Scene &s);
 
 // ---- moving a placed copy from here, a message at a time, rather than by a script of its own on the panel
 
@@ -341,6 +348,8 @@ inline void visitors(const Scene &s) {
     top = std::min<int>(top, s.land->hill[0][x]);
   int raven_y = std::max(s.overlay ? OV_H + 6 : 10, top - 26);
   sometimes(VISIT_EVERY, minutes(0.5f, 3), [=] {
+    if (heath_feature_on())  // one of the heath's features has the visitors' room, see met_heath_features.h
+      return minutes(1);
     if (!visitor_room())
       return minutes(1);
     R.guest = VISIT;
@@ -378,6 +387,8 @@ inline void life_on_heath(const Scene &s) {
   if (s.heath.nfig >= 3)
     the_dog(s);
   visitors(s);
+  if (heath_light_room(s).slots > 0)
+    heath_lights_start(s);
 }
 
 // What it's made of, so it starts again when that changes: who's out, their colours' light, the headlamp, snow,
@@ -386,7 +397,8 @@ inline uint32_t heath_cast(const Scene &s) {
   return (uint32_t) heath_mountain(s) | (uint32_t) heath_bay(s) << 4 | (uint32_t) s.heath.lamp << 8 |
          (uint32_t) (s.at.dark + (s.at.light < 0.5f) + (s.at.light <= 0)) << 9 | (uint32_t) s.at.white << 11 |
          (uint32_t) (s.heath.bft >= 3) << 12 | (uint32_t) (s.at.fog <= 45 && s.heath.bft <= 6) << 13 |
-         (uint32_t) (s.at.sun_el > -6 && s.at.fog <= 45 && !s.at.thunder && s.at.gust < 20) << 14;
+         (uint32_t) (s.at.sun_el > -6 && s.at.fog <= 45 && !s.at.thunder && s.at.gust < 20) << 14 |
+         heath_light_cast(s) << 16;
 }
 
 }  // namespace flexit::panel::met::live
