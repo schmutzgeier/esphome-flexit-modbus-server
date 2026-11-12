@@ -38,13 +38,54 @@ inline void wander(const std::string &n, int i, float s0, float s1, int heading,
 }
 // it faces the way it goes, mirrored from facing, upright
 inline void face(const std::string &n, int i, int facing = 0) { overlay::face(key(n), i, facing, true, 0, 0, true); }
-// move() and remove() a while later. remove_later() returns at, for a visit's ms.
+// Whether copy i of n is on the panel: it isn't if its place failed, or it was removed or its animation cleared while
+// a message for it waited
+inline bool shown(const char *n, int i) { return overlay::copy_for(key(n), i).second != nullptr; }
+// move() and remove() a while later, if the copy is still there by then. remove_later() returns at, for a visit's ms.
 inline void move_later(uint32_t at, const char *n, int i, int x, int y, int ms, const char *ease = "none") {
-  later(at, [=] { move(n, i, x, y, ms, ease); });
+  later(at, [=] {
+    if (shown(n, i))
+      move(n, i, x, y, ms, ease);
+  });
 }
 inline uint32_t remove_later(uint32_t at, const char *n, int i, int fade = 300) {
-  later(at, [=] { remove(n, i, fade); });
+  later(at, [=] {
+    if (shown(n, i))
+      remove(n, i, fade);
+  });
   return at;
+}
+
+// Sprites as one strip, their frames one after the other, each part's top left at the strip's, as JOINS in
+// met_sprites.cpp has the sprites it makes: one animation does what several would, each part's frames a clip by its
+// name, which a script plays with "clip <name>". Made and sent once, not at every swap.
+inline Frames join(std::vector<std::pair<const char *, Frames>> parts) {
+  Frames out;
+  for (auto &[name, f] : parts) {
+    out.clips[name] = {out.count(), out.count() + f.count() - 1, f.w, f.h};
+    out.w = std::max(out.w, f.w);
+    out.h = std::max(out.h, f.h);
+    out.delays.insert(out.delays.end(), f.delays.begin(), f.delays.end());
+  }
+  std::vector<Frames> all;
+  for (auto &p : parts)
+    all.push_back(std::move(p.second));
+  out.draw = [all](int f, const Canvas &c) {
+    for (const Frames &p : all) {
+      if (f >= p.count()) {
+        f -= p.count();
+        continue;
+      }
+      std::vector<uint8_t> px((size_t) p.w * p.h);
+      p.draw(f, Canvas{p.w, p.h, px.data(), c.cols});
+      for (int y = 0; y < p.h; y++)
+        for (int x = 0; x < p.w; x++)
+          if (px[(size_t) y * p.w + x])
+            c.px[y * c.w + x] = px[(size_t) y * p.w + x];
+      return;
+    }
+  };
+  return out;
 }
 
 // An amble()'s moves, each to x, y over ms to fn(x, y, ms) in turn. The ms they take. h is a line with at(x).
@@ -122,8 +163,14 @@ inline void shuttle(const char *n, const HeathSprite &sp, const Line &line, int 
   int to = (int) rnd((float) lo, (float) hi);
   if (abs(to - x) < 15)
     to = x < (lo + hi) / 2 ? hi : lo;
-  bool right = to > x;
-  place(n, 0, x, top_at(line, sp, x), "", {}, {.left = right != faces_right, .fade = first ? -1 : 0});
+  bool right = to > x, left = right != faces_right;
+  if (shown(n, 0)) {  // already there, at x: it turns round if it goes the other way
+    overlay::told(key(n), 0, left ? "flip x" : "flip none");
+  } else if (!place(n, 0, x, top_at(line, sp, x), "", {}, {.left = left, .fade = first ? -1 : 0})) {
+    // the panel has no room for it just now: no moves for a copy that isn't there, try again soon
+    later(minutes(0.05f, 0.15f), [=] { shuttle(n, sp, line, lo, hi, speed, downhill, faces_right, x, first); });
+    return;
+  }
   // short steps, so it keeps to the ridge's dips
   uint32_t ms = amble(n, 0, line, x, to, speed, sp.frames.w / 2, sp.feet, downhill, 3);
   later(ms + minutes(0.02f, 0.15f), [=] { shuttle(n, sp, line, lo, hi, speed, downhill, faces_right, to, false); });
@@ -133,7 +180,10 @@ inline void shuttle(const char *n, const HeathSprite &sp, const Line &line, int 
 
 // The climber goes up the face to the ridge a step at a time, walks along it a while, and starts again
 inline void climb(const HeathSprite &sp, const Line &ridge) {
-  place("hmount", 0, sp.x, sp.y, "", {}, {.fade = 1500});
+  if (!place("hmount", 0, sp.x, sp.y, "", {}, {.fade = 1500})) {  // no room just now, no moves for a copy not there
+    later(minutes(0.05f, 0.15f), [=] { climb(sp, ridge); });
+    return;
+  }
   int top = top_at(ridge, sp, sp.x), steps = std::max(1, sp.y - top);
   uint32_t t = 4000;
   for (int i = 1; i <= steps; i++, t += 7000)
@@ -185,7 +235,9 @@ inline void bay(const Scene &s, HeathKind k) {
 // ---- the dog
 
 enum { DOG_SIT, DOG_TROT, DOG_GALLOP, DOG_SNIFF };
-inline const char *const DOG_NAMES[] = {"hdogsit", "hdogtrot", "hdoggallop", "hdogsniff"};
+// One animation for the dog, its four gaits' frames joined, each a clip by these names
+inline constexpr const char *DOG = "hdog";
+inline const char *const DOG_CLIPS[] = {"sit", "trot", "gallop", "sniff"};
 
 inline struct HeathShow {
   HeathSprite dog[4];  // by gait
@@ -197,19 +249,27 @@ inline struct HeathShow {
   int turn = 0;            // the visitors take turns, see VISITORS
 } HEATH;
 
-// The dog in gait at its x, facing right or left. The gait before goes from the panel, so the dog takes one of
-// its animations.
+// The dog in gait at its x, facing right or left. It stays the one animation: the first time it's added and placed,
+// after that its copy is told the gait's clip, which way it faces and where its top is for that gait's feet.
 inline void dog_as(int gait, bool right) {
   const HeathSprite &d = HEATH.dog[gait];
-  if (HEATH.gait != gait) {
-    if (HEATH.gait >= 0) {
-      remove(DOG_NAMES[HEATH.gait], 0, 0);
-      unload(DOG_NAMES[HEATH.gait]);
+  int y = top_at(HEATH.ground, d, HEATH.dog_x);
+  std::string clip = std::string("clip ") + DOG_CLIPS[gait];
+  if (!shown(DOG, 0)) {  // the first time, or the panel lost it
+    if (!R.sprites.count(DOG))
+      add(DOG, join({{DOG_CLIPS[DOG_SIT], HEATH.dog[DOG_SIT].frames},
+                     {DOG_CLIPS[DOG_TROT], HEATH.dog[DOG_TROT].frames},
+                     {DOG_CLIPS[DOG_GALLOP], HEATH.dog[DOG_GALLOP].frames},
+                     {DOG_CLIPS[DOG_SNIFF], HEATH.dog[DOG_SNIFF].frames}}));
+    place(DOG, 0, HEATH.dog_x, y, clip, {}, {.left = right, .fade = HEATH.gait < 0 ? -1 : 0});
+  } else {
+    if (right != HEATH.dog_right)
+      overlay::told(key(DOG), 0, right ? "flip x" : "flip none");
+    if (gait != HEATH.gait) {
+      script(DOG, 0, clip);
+      move(DOG, 0, HEATH.dog_x, y, 0);
     }
-    add(DOG_NAMES[gait], d.frames);
   }
-  place(DOG_NAMES[gait], 0, HEATH.dog_x, top_at(HEATH.ground, d, HEATH.dog_x), "", {},
-        {.left = right, .fade = HEATH.gait < 0 ? -1 : 0});
   HEATH.gait = gait;
   HEATH.dog_right = right;
 }
@@ -220,7 +280,7 @@ inline void dog_next();
 inline void dog_go(int gait, int to, float speed, std::function<void()> then) {
   dog_as(gait, to > HEATH.dog_x);
   const HeathSprite &d = HEATH.dog[gait];
-  uint32_t ms = amble(DOG_NAMES[gait], 0, HEATH.ground, HEATH.dog_x, to, speed, d.frames.w / 2, d.feet, 0.6f, 3);
+  uint32_t ms = amble(DOG, 0, HEATH.ground, HEATH.dog_x, to, speed, d.frames.w / 2, d.feet, 0.6f, 3);
   HEATH.dog_x = to;
   later(ms, std::move(then));
 }
@@ -274,30 +334,28 @@ inline void the_dog(const Scene &s) {
 // ---- the visitors, one at a time
 
 // A reindeer walks out of the trees behind the cabin onto the hill, away from the screen's edge, grazes a while and
-// goes back. The ms it takes.
+// goes back. One animation, its walk and its graze clips, so the copy is told the other and not swapped for another
+// sprite. The ms it takes.
 inline uint32_t deer_visit(const HeathSprite &walk, const HeathSprite &graze, const Line &ground) {
   int x0 = walk.x, x1 = (int) rnd(200, 250), mid = walk.frames.w / 2;
-  add("hdeerwalk", walk.frames);
-  place("hdeerwalk", 0, x0, top_at(ground, walk, x0), "", {}, {.fade = 1500});
+  add("hdeer", join({{"walk", walk.frames}, {"graze", graze.frames}}));
+  place("hdeer", 0, x0, top_at(ground, walk, x0), "clip walk", {}, {.fade = 1500});
   HEATH.deer_x = x0;
-  uint32_t out = amble("hdeerwalk", 0, ground, x0, x1, 2, mid, walk.feet, 0, 4), eat = minutes(0.25f, 0.5f);
+  uint32_t out = amble("hdeer", 0, ground, x0, x1, 2, mid, walk.feet, 0, 4), eat = minutes(0.25f, 0.5f);
   later(out, [=] {
     HEATH.deer_x = x1;
-    remove("hdeerwalk", 0, 0);
-    unload("hdeerwalk");
-    add("hdeergraze", graze.frames);
-    place("hdeergraze", 0, x1, top_at(ground, graze, x1), "", {}, {.fade = 0});
+    script("hdeer", 0, "clip graze");
+    move("hdeer", 0, x1, top_at(ground, graze, x1), 0);
   });
   later(out + eat, [=] {
-    remove("hdeergraze", 0, 0);
-    unload("hdeergraze");
-    add("hdeerwalk", walk.frames);
     // drawn facing left, it goes back right
-    place("hdeerwalk", 0, x1, top_at(ground, walk, x1), "", {}, {.left = true, .fade = 0});
-    uint32_t back = amble("hdeerwalk", 0, ground, x1, x0 + 2, 2, mid, walk.feet, 0, 4);
+    overlay::told(key("hdeer"), 0, "flip x");
+    script("hdeer", 0, "clip walk");
+    move("hdeer", 0, x1, top_at(ground, walk, x1), 0);
+    uint32_t back = amble("hdeer", 0, ground, x1, x0 + 2, 2, mid, walk.feet, 0, 4);
     later(back, [] { HEATH.deer_x = -1; });
-    remove_later(back, "hdeerwalk", 0, 1500);
-    later(back + 2000, [] { unload("hdeerwalk"); });
+    remove_later(back, "hdeer", 0, 1500);
+    later(back + 2000, [] { unload("hdeer"); });
   });
   return 2 * out + eat + 3000;
 }

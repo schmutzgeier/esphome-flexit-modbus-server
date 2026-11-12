@@ -102,8 +102,13 @@ struct Source {
 inline uint32_t frame_ms(const Source &s, int f) { return s.delays.empty() ? s.frame_ms : s.delays[f]; }
 inline std::map<std::string, Source> sources;
 
+// How much the panel was asked to do since reset(), to see an act's churn: animations built on the ESP (add), sent over
+// the link (a slot taken), copies placed
+inline int n_built = 0, n_sent = 0, n_placed = 0;
+
 inline constexpr int MAX_FRAME_MS = OVERLAY_DELAY_MAX * OVERLAY_TICK_MS;
 inline void add(const std::string &name, Source s) {
+  n_built++;
   int ms = std::clamp(s.frame_ms, OVERLAY_FRAME_MIN_MS, MAX_FRAME_MS);
   if (ms != s.frame_ms) {
     ESP_LOGW("panel", "Animation %s: frame_ms %d is outside %d..%d, it plays at %d", name.c_str(), s.frame_ms,
@@ -414,6 +419,7 @@ inline Overlay *want(const std::string &name) {
     return nullptr;
   }
   a->state = SENT;
+  n_sent++;
   if (s->on_shown)
     s->on_shown(true);
   return a;
@@ -1256,6 +1262,7 @@ inline bool place(const std::string &name, int i, int x, int y, Program p, bool 
   n.seed = hash32(++placed_so_far, (uint32_t) s.w, (uint32_t) i);
   n.last = std::max(0, s.frames - 1);
   *c = std::move(n);
+  n_placed++;
   set_script(*a, *c, std::move(p));
   return true;
 }
@@ -2017,6 +2024,7 @@ inline void reset() {
   wrapped.clear();
   crossed.clear();
   where.clear();
+  n_built = n_sent = n_placed = 0;
   std::fill(std::begin(shared), std::end(shared), 0);
   tags = 0;
 }

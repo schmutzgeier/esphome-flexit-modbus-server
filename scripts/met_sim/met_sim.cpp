@@ -323,7 +323,7 @@ static bool check(const Case &c) {
       kayak_bad += !ok;
       wet++;
     }
-    for (const char *n : live::DOG_NAMES)
+    for (const char *n : {live::DOG})
       if (overlay::Copy *d = copy_of(n)) {
         int x = (int) lroundf(overlay::shown(*d, overlay::X)), y = (int) lroundf(overlay::shown(*d, overlay::Y));
         int ground = legs_ground(x) + dog_d;
@@ -475,6 +475,8 @@ static void run(const Case &c, const Args &a) {
   fclose(f);
   printf("%-26s %d s of animation, up to %d copies, %d of %d slots and %zu bytes of frames at a time\n", "", a.seconds,
          most, slots, OVERLAY_SLOTS, bytes);
+  printf("%-26s churn: %d animations built, %d sent, %d copies placed\n", "", flexit::panel::overlay::n_built,
+         flexit::panel::overlay::n_sent, flexit::panel::overlay::n_placed);
   for (auto &[name, px] : flexit::panel::overlay::wrapped)
     printf("%-26s %s drawn round the screen's edge, %d px\n", "", name.c_str(), px);
   if (sim::verbose)

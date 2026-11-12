@@ -111,11 +111,13 @@ inline const Act ACTS[] = {
     // what lives in the picture, the first to have the room when it's short
     // The heath's people on the mountain and by the bay and its dog, whenever someone's out, and its visitors beyond
     // the VISIT room every cast leaves. Cost, from what life_on_heath() places: at most 3 animations (the mountain's
-    // and the bay's figure, the dog in one of its four gaits at a time, whose sprite is swapped, not added), a
-    // copy each, so 3 places. Bytes, the panel's frame and the records of the largest of each (met_heath.cpp, at
-    // 4 bits a pixel: the skier with a headlamp 14x15, 4 frames; the kayak 21x16, 4 frames; the sniffing dog 12x10,
-    // 4 frames), and what the kayak's wander and face take: about 350 + 600 + 350. Check it against Panel Animation
-    // Status and trim it to what the pool reports.
+    // and the bay's figure, and the dog, one animation whose frames hold its four gaits as clips, added once; the
+    // reindeer is one too, its walk and graze clips, in the visitor's room), a copy each, so 3 places. Bytes, the
+    // panel's frame and the records of the largest of each (met_heath.cpp, at 4 bits a pixel: the skier with a
+    // headlamp 14x15, 4 frames; the kayak 21x16, 4 frames; the dog's four gaits 12x10 or so, 16 frames, and its
+    // copy has a frame of its own for the clips), and what the kayak's wander and face take: about 350 + 600 + 350.
+    // The sim's pool reports about 780 for it alone. Check it against Panel Animation Status and trim it to what
+    // the pool reports.
     {"Life on the heath", RESIDENT, L_HEATH, {3, 3, 1300}, life_on_heath,
      [](const Scene &s) { return s.ground == G_HEATH && s.heath.nfig > 0; }, nullptr, heath_cast, heath_light_room},
     // The wind's streaks and the bay's crests, moving, on the heath whenever it has any: one field, two copies
