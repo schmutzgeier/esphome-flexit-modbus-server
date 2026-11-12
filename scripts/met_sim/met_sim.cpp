@@ -199,9 +199,9 @@ static void soft_marks(uint32_t *rgb) {
 // ink to a few opacities, here they have their coverage as it is.
 static void sharp_marks(uint32_t *rgb) {
   static marks::Sharp sharp;
-  for (int y0 = 0; y0 < H; y0 += marks::BAND) {
+  for (int y0 = 0; y0 < H; y0 += marks::SHARP_BAND) {
     marks::draw_sharp(layer, sharp, y0);
-    for (int y = y0; y < std::min(H, y0 + marks::BAND); y++)
+    for (int y = y0; y < std::min(H, y0 + marks::SHARP_BAND); y++)
       for (int x = 0; x < W; x++) {
         uint32_t p = sharp.px[(y - y0) * W + x], a = p >> 24, &d = rgb[y * W + x], out = 0;  // premultiplied
         if (!a)
