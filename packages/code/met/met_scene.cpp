@@ -283,7 +283,11 @@ marks::Layer forecast_marks(const Scene &s, const Weather &w, uint32_t t, Offset
   // 10 m, none from there. The baseline is SEA_TEXT_BASE.
   if (s.ground == G_HEATH && w.wave >= 0) {
     snprintf(b, sizeof b, w.wave < 9.95f ? "%.1f m" : "%.0f m", w.wave);
-    text(ink, SEA_TEXT_X, SEA_TEXT_BASE - (FONT_TINY.line_height - FONT_TINY.base_line), b, FONT_TINY);
+    int top = SEA_TEXT_BASE - (FONT_TINY.line_height - FONT_TINY.base_line);
+    text(ink, SEA_TEXT_X, top, b, FONT_TINY);
+    // an overlay of its own: with the rest it would be 240 rows tall, the ESP could only make it at half size, and
+    // at half size the 1-px strokes of Noto Sans go grey
+    l.apart = top - 8;
   }
   l.ops = std::move(ink.sh.ops);  // all shadows first, so none falls over a letter
   l.ops.insert(l.ops.end(), std::make_move_iterator(ink.fg.ops.begin()), std::make_move_iterator(ink.fg.ops.end()));

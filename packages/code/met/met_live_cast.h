@@ -227,7 +227,10 @@ inline Room cost_of(int i, const Scene &s) { return ACTS[i].also ? ACTS[i].cost 
 // What the cast has: the panel's room, less the forecast's over the picture
 inline Room whole(const Scene &s) {
   Room r{OVERLAY_SLOTS, OVERLAY_PLACES, CAST_POOL};
-  return s.overlay ? r - Room{1, 1, FORECAST_BYTES} : r;
+  if (!s.overlay)
+    return r;
+  // the wave height in the heath's bay is a second overlay and place, its few bytes within the forecast's
+  return s.heath.sea_text ? r - Room{2, 2, FORECAST_BYTES} : r - Room{1, 1, FORECAST_BYTES};
 }
 
 // A number from three, the same each time

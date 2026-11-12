@@ -18,13 +18,15 @@ struct Marks {
   bool into = false;                       // the layer draws into the picture
   std::function<uint32_t(int, int)> base;  // the picture without them, at the screen's size
   std::unique_ptr<Soft> soft;              // while the picture is made
-  std::unique_ptr<Sharp> sharp;            // while the overlay is made
-  int ox = 0, oy = 0, ow = 0, oh = 0;      // the overlay's place and size, 0 wide for none
-  bool on_panel = false;                   // the picture is
+  struct Part {                            // an overlay: the layer's sharp ops, or from Layer::apart on the rest
+    std::unique_ptr<Sharp> sharp;          // while it's made
+    int ox = 0, oy = 0, ow = 0, oh = 0;    // its place and size, 0 wide for none
+  } part[2];
+  bool on_panel = false;  // the picture is
 };
 inline std::map<std::string, Marks> all;  // by picture
 
-inline std::string overlay_of(const std::string &name) { return name + "_marks"; }
+inline std::string overlay_of(const std::string &name, int part = 0) { return name + (part ? "_marks2" : "_marks"); }
 
 inline uint32_t soft_pixel(Marks &m, int x, int y) {
   if (x < 0 || y < 0 || x >= W || y >= H)
@@ -41,18 +43,19 @@ inline uint32_t soft_pixel(Marks &m, int x, int y) {
   return m.soft->rgb[(y - y0) * W + x];
 }
 
-inline uint32_t sharp_pixel(Marks &m, int x, int y) {
-  int sx = x + m.ox, sy = y + m.oy;
-  if (!m.sharp)
-    m.sharp.reset(new (std::nothrow) Sharp());
-  if (!m.sharp || sx >= W || sy >= H)
+inline uint32_t sharp_pixel(Marks &m, int k, int x, int y) {
+  Marks::Part &q = m.part[k];
+  int sx = x + q.ox, sy = y + q.oy;
+  if (!q.sharp)
+    q.sharp.reset(new (std::nothrow) Sharp());
+  if (!q.sharp || sx >= W || sy >= H)
     return 0;
-  int y0 = m.oy + y / SHARP_BAND * SHARP_BAND;  // from its top, so a pixel at half size has its 2 x 2 in one band
-  if (m.sharp->y0 != y0)
-    draw_sharp(m.layer, *m.sharp, y0);
-  uint32_t p = m.sharp->px[(sy - y0) * W + sx], a = p >> 24;
-  if (x == m.ow - 1 && y == m.oh - 1)
-    m.sharp.reset();  // the last pixel of a pass, the next starts over
+  int y0 = q.oy + y / SHARP_BAND * SHARP_BAND;  // from its top, so a pixel at half size has its 2 x 2 in one band
+  if (q.sharp->y0 != y0)
+    draw_sharp(m.layer, *q.sharp, y0, m.layer.apart > 0 ? k : -1);
+  uint32_t p = q.sharp->px[(sy - y0) * W + sx], a = p >> 24;
+  if (x == q.ow - 1 && y == q.oh - 1)
+    q.sharp.reset();  // the last pixel of a pass, the next starts over
   if (!a)
     return 0;
   uint32_t out = a << 24;
@@ -82,12 +85,14 @@ inline void on(const std::string &name, const std::string &label = "") {
   auto panel = s.on_panel;
   s.on_panel = [&m, panel](bool on) {
     m.on_panel = on;
-    std::string k = overlay_of(m.name);
-    if (on && m.ow)
-      overlay::show(k);
-    else if (!on && overlay::find(k)) {
-      overlay::clear(k);
-      m.sharp.reset();
+    for (int i = 0; i < 2; i++) {
+      std::string k = overlay_of(m.name, i);
+      if (on && m.part[i].ow)
+        overlay::show(k);
+      else if (!on && overlay::find(k)) {
+        overlay::clear(k);
+        m.part[i].sharp.reset();
+      }
     }
     if (panel)
       panel(on);
@@ -104,36 +109,44 @@ inline void set(const std::string &name, Layer l) {
   drop(l.boxes);  // they were for laying it out
   if (l == m.layer)
     return;
-  std::string k = overlay_of(name);
-  if (overlay::find(k))
-    overlay::clear(k);
+  for (int i = 0; i < 2; i++)
+    if (overlay::find(overlay_of(name, i)))
+      overlay::clear(overlay_of(name, i));
   bool was_into = m.into;
   m.layer = std::move(l);
   m.into = into_picture(m.layer);
   m.soft.reset();
-  m.sharp.reset();
-  // the overlay covers what the sharp ops do
-  Box b{(float) W, (float) H, 0, 0};
-  for (const Op &o : m.layer.ops)
-    if (!o.soft)
-      b = {std::min(b.x0, o.box.x0), std::min(b.y0, o.box.y0), std::max(b.x1, o.box.x1), std::max(b.y1, o.box.y1)};
-  m.ow = 0;
-  if (b.x0 < b.x1) {
-    m.ox = std::max(0, (int) floorf(b.x0));
-    m.oy = std::max(0, (int) floorf(b.y0));
-    m.ow = std::min(W - m.ox, (int) ceilf(b.x1) - m.ox + 1);
-    m.oh = std::min(H - m.oy, (int) ceilf(b.y1) - m.oy + 1);
-    overlay::Source s{m.ow, m.oh, 1, 500, m.ox, m.oy, 1, [&m](int, int x, int y) { return sharp_pixel(m, x, y); }};
+  bool shown = false;
+  for (int i = 0; i < 2; i++) {
+    Marks::Part &q = m.part[i];
+    q.sharp.reset();
+    q.ow = 0;
+    // the overlay covers what its sharp ops do
+    Box b{(float) W, (float) H, 0, 0};
+    for (const Op &o : m.layer.ops)
+      if (!o.soft && m.layer.part_of(o) == i)
+        b = {std::min(b.x0, o.box.x0), std::min(b.y0, o.box.y0), std::max(b.x1, o.box.x1), std::max(b.y1, o.box.y1)};
+    if (b.x0 >= b.x1)
+      continue;
+    q.ox = std::max(0, (int) floorf(b.x0));
+    q.oy = std::max(0, (int) floorf(b.y0));
+    q.ow = std::min(W - q.ox, (int) ceilf(b.x1) - q.ox + 1);
+    q.oh = std::min(H - q.oy, (int) ceilf(b.y1) - q.oy + 1);
+    overlay::Source s{q.ow, q.oh, 1, 500,
+                      q.ox, q.oy, 1, [&m, i](int, int x, int y) { return sharp_pixel(m, i, x, y); }};
     s.ram = sizeof(Sharp);
     s.colours = colours_of(m.layer);
     s.fade_ms = 300;
     s.label = m.label;
-    overlay::add(k, std::move(s));
+    overlay::add(overlay_of(name, i), std::move(s));
+    shown = true;
   }
   if (was_into || m.into)
     picture::changed(name);
-  else if (m.on_panel && m.ow)
-    overlay::show(k);
+  else if (m.on_panel && shown)
+    for (int i = 0; i < 2; i++)
+      if (m.part[i].ow)
+        overlay::show(overlay_of(name, i));
 }
 
 }  // namespace flexit::panel::marks

@@ -161,6 +161,10 @@ int main() {
     CHECK(o->box.y0 > OV_H && o->box.x0 >= SEA_TEXT_X - 4 && o->box.x1 <= SEA_TEXT_X + 64);
     CHECK(o->box.y1 <= H);
   }
+  // the bay's text is an overlay of its own, or the forecast's would be 240 rows tall and made at half size
+  CHECK(with.apart > OV_H && without.apart == 0);
+  for (const marks::Op &o : with.ops)
+    CHECK((with.part_of(o) == 1) == (o.box.y0 > OV_H));
 
   // None inland, where Oceanforecast has no waves, without the forecast, and on the other landscapes
   CHECK(bay_ops(without).empty());

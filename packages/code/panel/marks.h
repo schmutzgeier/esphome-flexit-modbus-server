@@ -120,7 +120,12 @@ struct Layer {
   std::vector<Op> ops;
   std::vector<Box> boxes;  // taken, so label() puts nothing over them
   float shadow = 0.6f;     // the soft shadow under the sharp ops and the lines
-  bool operator==(const Layer &l) const { return ops == l.ops && shadow == l.shadow; }
+  // The row from which the sharp ops, by the top of their boxes, are an overlay of their own, 0 for one overlay. A
+  // few marks far from the rest would else stretch its rectangle, and with it the RAM it takes to make, till the ESP
+  // can only make it at half size, where a 1-px stroke goes grey.
+  int apart = 0;
+  bool operator==(const Layer &l) const { return ops == l.ops && shadow == l.shadow && apart == l.apart; }
+  int part_of(const Op &o) const { return apart > 0 && o.box.y0 >= (float) apart ? 1 : 0; }
 
   Op &add(Op::Kind k, bool soft, uint32_t rgb, float alpha, Box b) {
     Op o;
@@ -536,13 +541,13 @@ inline void draw_soft(const Layer &l, const std::function<uint32_t(int, int)> &b
       paint(o);
 }
 
-// Rows y0.. of the overlay, premultiplied
-inline void draw_sharp(const Layer &l, Sharp &b, int y0) {
+// Rows y0.. of the overlay, premultiplied. part: only the ops of that overlay, see Layer::apart, -1 for all.
+inline void draw_sharp(const Layer &l, Sharp &b, int y0, int part = -1) {
   b.y0 = y0;
   int y1 = std::min(y0 + SHARP_BAND, H);
   std::fill(std::begin(b.px), std::end(b.px), 0);
   for (const Op &o : l.ops)
-    for (int edge = o.outline ? 1 : 0; !o.soft && edge >= 0; edge--) {
+    for (int edge = o.outline ? 1 : 0; !o.soft && (part < 0 || l.part_of(o) == part) && edge >= 0; edge--) {
       Span sp;
       cover(o, y0, y1, b.cov, sp, edge);
       uint32_t rgb = edge ? *o.outline : o.rgb;
