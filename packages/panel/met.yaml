@@ -31,14 +31,17 @@ defaults:
   aurora: auto
   facing: "180"
 
-# api.met.no's certificate is from HARICA, which ESPHome's usual root bundle doesn't have, so we take the full one.
-# About 70 KB more flash.
+# api.met.no's certificate is from HARICA, which ESPHome's usual root bundle doesn't have. Rather than the full
+# bundle (about 70 KB more flash), the common one and HARICA's roots from certs/met_roots.pem beside it.
 esp32:
   framework:
     advanced:
-      use_full_certificate_bundle: true
       include_builtin_idf_components: [esp_http_client]  # for fetch.h, ESPHome leaves it out unless asked
     sdkconfig_options:
+      # [flash] certs/ is copied to the build's src/ by esphome: includes; the path is from the build directory.
+      CONFIG_MBEDTLS_CERTIFICATE_BUNDLE: "y"   # the common one, ESPHome's default when a bundle is asked for
+      CONFIG_MBEDTLS_CUSTOM_CERTIFICATE_BUNDLE: "y"
+      CONFIG_MBEDTLS_CUSTOM_CERTIFICATE_BUNDLE_PATH: '"src/certs/met_roots.pem"'   # a string: quotes inside
       # TLS takes its buffers for each record as it comes and goes instead of 20 KB for the whole request, so the
       # request, which runs beside the pictures, needs less RAM at once. Closing a connection frees them either way.
       CONFIG_MBEDTLS_DYNAMIC_BUFFER: "y"
@@ -147,6 +150,7 @@ esphome:
   # Only here, so builds without the weather don't compile its .cpp files
   includes:
     - ../code/met
+    - ../certs  # the roots for the custom certificate bundle above, not code
   on_boot:
     - then:
         - lambda: |-
