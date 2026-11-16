@@ -28,10 +28,9 @@ update:
 esp32:
   framework:
     advanced:
+      use_full_certificate_bundle: true  # for https, the full set so GitHub's CA is in it
       include_builtin_idf_components: [esp_http_client]  # for fetch.h, ESPHome leaves it out unless asked
     sdkconfig_options:
-      # the common bundle for https: GitHub's roots (USERTrust ECC, ISRG Root X1) are in it
-      CONFIG_MBEDTLS_CERTIFICATE_BUNDLE: "y"
       # TLS buffers only as big as each record, not 20 KB for the whole download, see met.yaml
       CONFIG_MBEDTLS_DYNAMIC_BUFFER: "y"
 
