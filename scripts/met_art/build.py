@@ -381,6 +381,7 @@ def main():
                 and (y - ly) * (rx - lx) < (x - lx) * (ry - ly) + (rx - lx) // 2
             ):
                 slot[y, x] = S["BLACK"]
+
     # The door is shut: its glass strip and frame are as dark as the door, so nothing seems to show through it
     def box(x0, y0, x1, y1):  # the artboard's box as the picture's columns and rows
         return (
@@ -388,7 +389,8 @@ def main():
             range(int(y0 * 0.2 + ART_Y0) + 1, int(y1 * 0.2 + ART_Y0) + 1),
         )
 
-    xs, ys = box(1466, 602, 1488, 649)  # down to its sill, not the threshold in the light below it
+    # down to its sill, not the threshold in the light below it
+    xs, ys = box(1466, 602, 1488, 649)
     for y in ys:
         for x in xs:
             if slot[y, x] in (S["WINDOW"], S["CABIN_TRIM"]):
